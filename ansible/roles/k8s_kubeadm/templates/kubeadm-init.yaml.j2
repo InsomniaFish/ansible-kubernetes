@@ -1,0 +1,37 @@
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: InitConfiguration
+localAPIEndpoint:
+  advertiseAddress: {{ (kubeadm_advertise_address | default('') | trim) if (kubeadm_advertise_address | default('') | trim) else ansible_default_ipv4.address }}
+  bindPort: {{ kubeadm_bind_port }}
+nodeRegistration:
+  criSocket: {{ kubeadm_cri_socket }}
+  imagePullPolicy: IfNotPresent
+  imagePullSerial: true
+  name: {{ (kubeadm_node_name | default('') | trim) if (kubeadm_node_name | default('') | trim) else inventory_hostname }}
+  taints: null
+---
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: ClusterConfiguration
+clusterName: {{ kubeadm_cluster_name }}
+kubernetesVersion: {{ kubeadm_kubernetes_version }}
+imageRepository: {{ kubeadm_image_repository }}
+networking:
+  dnsDomain: {{ kubeadm_dns_domain }}
+  serviceSubnet: {{ kubeadm_service_subnet }}
+etcd:
+  local:
+    dataDir: /var/lib/etcd
+apiServer: {}
+controllerManager: {}
+scheduler: {}
+dns: {}
+---
+apiVersion: kubeproxy.config.k8s.io/v1alpha1
+kind: KubeProxyConfiguration
+mode: {{ kubeadm_kubeproxy_mode }}
+---
+apiVersion: kubelet.config.k8s.io/v1beta1
+kind: KubeletConfiguration
+cgroupDriver: {{ kubeadm_kubelet_cgroup_driver }}
+
+

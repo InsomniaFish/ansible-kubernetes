@@ -1,0 +1,19 @@
+# Managed by Ansible (role: k8s_init)
+# Use Alibaba Cloud / CN pool NTP servers
+{% for s in chrony_servers %}
+server {{ s }} iburst
+{% endfor %}
+
+confdir /etc/chrony/conf.d
+sourcedir /run/chrony-dhcp
+sourcedir /etc/chrony/sources.d
+keyfile /etc/chrony/chrony.keys
+driftfile /var/lib/chrony/chrony.drift
+ntsdumpdir /var/lib/chrony
+logdir /var/log/chrony
+maxupdateskew 100.0
+rtcsync
+makestep 1.0 3
+leapsectz right/UTC
+
+

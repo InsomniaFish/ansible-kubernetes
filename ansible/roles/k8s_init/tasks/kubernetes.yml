@@ -1,0 +1,74 @@
+- name: Install Kubernetes apt prerequisites
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - curl
+      - gnupg
+      - apt-transport-https
+    state: present
+    update_cache: true
+
+- name: Ensure apt keyrings directory exists
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Download Kubernetes Release key (armored)
+  ansible.builtin.get_url:
+    url: "https://mirrors.aliyun.com/kubernetes-new/core/stable/{{ k8s_version_channel }}/deb/Release.key"
+    dest: /tmp/kubernetes.Release.key
+    mode: "0644"
+
+- name: Dearmor Kubernetes key into keyring
+  when: not ansible_check_mode
+  ansible.builtin.command: "gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg /tmp/kubernetes.Release.key"
+  args:
+    creates: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+  changed_when: false
+
+- name: Add Kubernetes apt repository (Aliyun mirror)
+  ansible.builtin.apt_repository:
+    repo: "deb [arch={{ k8s_apt_arch }} signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://mirrors.aliyun.com/kubernetes-new/core/stable/{{ k8s_version_channel }}/deb/ /"
+    filename: kubernetes
+    state: present
+
+- name: Compute Kubernetes major.minor string
+  ansible.builtin.set_fact:
+    k8s_major_minor: "{{ k8s_version_channel | regex_replace('^v', '') }}"
+
+- name: Discover Kubernetes deb version to install
+  ansible.builtin.shell: "set -o pipefail && apt-cache madison kubeadm | awk '{print $3}' | grep -E '^{{ k8s_major_minor }}\\.' | head -1"
+  args:
+    executable: /bin/bash
+  register: k8s_deb_version_cmd
+  check_mode: false
+  changed_when: false
+
+- name: Fail if Kubernetes version not found in apt cache
+  ansible.builtin.fail:
+    msg: "Could not find kubeadm deb version for channel {{ k8s_version_channel }} (major.minor={{ k8s_major_minor }}). Check the apt repo is reachable and updated."
+  when: (k8s_deb_version_cmd.stdout | default('') | trim) == ""
+
+- name: Set Kubernetes deb version fact
+  ansible.builtin.set_fact:
+    k8s_deb_version: "{{ k8s_deb_version_cmd.stdout | trim }}"
+
+- name: Install kubelet/kubeadm/kubectl
+  ansible.builtin.apt:
+    name:
+      - "kubelet={{ k8s_deb_version }}"
+      - "kubeadm={{ k8s_deb_version }}"
+      - "kubectl={{ k8s_deb_version }}"
+    state: present
+    update_cache: true
+
+- name: Enable kubelet (it may restart until cluster is initialized)
+  ansible.builtin.systemd:
+    name: kubelet
+    enabled: true
+    state: started
+
+
