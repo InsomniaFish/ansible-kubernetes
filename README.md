@@ -9,7 +9,7 @@
 ├── gen_inventory.sh                           # 生成 inventory 的脚本：用任意 master IP + nodes IP 生成一份 hosts.ini 风格文件
 ├── hosts.ini                                 # Inventory：定义 k8s_master/k8s_nodes/k8s_cluster + 登录账号密码（ansible_user/ansible_password）
 ├── install_ansible.sh                         # controller 侧安装 Ansible + sshpass（Ubuntu/Debian apt 方式）
-├── k8s-cluster.yaml                           # 入口 playbook：全节点初始化(k8s_init) → master init+calico → nodes join
+├── k8s-cluster.yaml                           # 入口 playbook：k8s_init → NFS(服务端/客户端) → master init+calico → nodes join → NFS 动态存储
 ├── README.md                                 # 本说明文档（你正在看的这个文件）
 ├── roles/                                    # Ansible roles（把复杂逻辑拆分成可复用模块）
 │   ├── k8s_init/                              # 角色：所有节点的系统初始化 + Docker + kubelet/kubeadm/kubectl + cri-dockerd
@@ -27,6 +27,16 @@
 │   │       ├── chrony.conf.j2                 # chrony 配置模板（时间同步）
 │   │       ├── daemon.json.j2                 # Docker daemon.json 模板（镜像加速/cgroupdriver/log 等）
 │   │       └── sysctl-k8s.conf.j2             # K8s sysctl 模板（ip_forward/bridge-nf-call 等）
+│   ├── k8s_nfs/                               # 角色：部署 NFS（由 nfs_server/nfs_clients 分组决定）+ K8s 动态存储
+│   │   ├── defaults/
+│   │   │   └── main.yml                       # NFS 默认变量（导出目录/权限/StorageClass 等）
+│   │   ├── tasks/
+│   │   │   ├── client.yml                     # NFS 客户端：安装 nfs-common
+│   │   │   ├── server.yml                     # NFS 服务器：安装 nfs-kernel-server、配置 /etc/exports
+│   │   │   ├── provisioner.yml                # 部署 nfs-subdir-external-provisioner + StorageClass
+│   │   │   └── main.yml                       # 任务入口：server.yml (master) + client.yml (all)
+│   │   └── templates/
+│   │       └── nfs-provisioner.yaml.j2        # NFS Provisioner 清单模板（Deployment/RBAC/StorageClass）
 │   └── k8s_kubeadm/                           # 角色：master kubeadm init + apply Calico + 生成 join 命令；nodes 执行 join
 │       ├── defaults/
 │       │   └── main.yml                       # k8s_kubeadm 默认变量（kubeadm 模板变量、calico manifest 路径、join ttl 等）
@@ -52,8 +62,11 @@ cd /root/ansible
 # 3) 演练（只预览变更）
 ansible-playbook --check --diff k8s-cluster.yaml
 
-# 4) 正式执行
+# 4) 正式执行（默认不启用 NFS）
 ansible-playbook k8s-cluster.yaml
+
+# 可选：启用 NFS 动态存储
+ansible-playbook k8s-cluster.yaml -e k8s_enable_nfs=true
 ```
 
 ## 环境信息 / 兼容性
@@ -81,6 +94,27 @@ kubectl --kubeconfig /etc/kubernetes/admin.conf -n kube-system get pods
 # 进一步确认 calico 关键组件（可选）
 kubectl --kubeconfig /etc/kubernetes/admin.conf -n kube-system get ds calico-node
 kubectl --kubeconfig /etc/kubernetes/admin.conf -n kube-system get deploy calico-kube-controllers
+```
+
+验证 NFS 动态存储（StorageClass/PVC）（启用 NFS 后）：
+
+```bash
+# 查看默认 StorageClass 是否为 NFS
+kubectl --kubeconfig /etc/kubernetes/admin.conf get storageclass
+
+# 可选：创建一个测试 PVC
+cat <<'EOF' | kubectl --kubeconfig /etc/kubernetes/admin.conf apply -f -
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nfs-test-pvc
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 1Gi
+EOF
 ```
 
 如果节点未 Ready，优先看：

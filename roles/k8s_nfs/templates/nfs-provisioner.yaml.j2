@@ -1,0 +1,99 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ nfs_provisioner_namespace }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ nfs_provisioner_name }}
+  namespace: {{ nfs_provisioner_namespace }}
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ nfs_provisioner_name }}-runner
+rules:
+  - apiGroups: [""]
+    resources: ["persistentvolumes"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "update"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["services", "endpoints"]
+    verbs: ["get"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ nfs_provisioner_name }}-runner
+subjects:
+  - kind: ServiceAccount
+    name: {{ nfs_provisioner_name }}
+    namespace: {{ nfs_provisioner_namespace }}
+roleRef:
+  kind: ClusterRole
+  name: {{ nfs_provisioner_name }}-runner
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ nfs_provisioner_name }}
+  namespace: {{ nfs_provisioner_namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ nfs_provisioner_name }}
+  template:
+    metadata:
+      labels:
+        app: {{ nfs_provisioner_name }}
+    spec:
+      serviceAccountName: {{ nfs_provisioner_name }}
+      containers:
+        - name: nfs-provisioner
+          image: registry.k8s.io/sig-storage/nfs-subdir-external-provisioner:v4.0.2
+          env:
+            - name: PROVISIONER_NAME
+              value: {{ nfs_provisioner_name }}
+            - name: NFS_SERVER
+              value: {{ nfs_server_ip }}
+            - name: NFS_PATH
+              value: {{ nfs_server_export_dir }}
+          volumeMounts:
+            - name: nfs-client-root
+              mountPath: /persistentvolumes
+      volumes:
+        - name: nfs-client-root
+          nfs:
+            server: {{ nfs_server_ip }}
+            path: {{ nfs_server_export_dir }}
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: {{ nfs_storageclass_name }}
+{% if nfs_storageclass_default | bool %}
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+{% endif %}
+provisioner: {{ nfs_provisioner_name }}
+parameters:
+  archiveOnDelete: "{{ nfs_storageclass_archive_on_delete }}"
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+allowVolumeExpansion: true
+
+

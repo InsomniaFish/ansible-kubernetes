@@ -1,0 +1,64 @@
+- name: Install prerequisites on all nodes (OS tuning + Docker + kubeadm/kubelet/kubectl + cri-dockerd)
+  hosts: k8s_cluster
+  become: true
+  gather_facts: true
+  roles:
+    - role: k8s_init
+
+- name: Setup NFS server/client (optional)
+  hosts: k8s_cluster
+  become: true
+  gather_facts: true
+  roles:
+    - role: k8s_nfs
+      when: (k8s_enable_nfs | default(false)) | bool
+
+- name: Initialize control-plane and install Calico
+  hosts: k8s_master
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Run kubeadm init + apply Calico + generate join command
+      ansible.builtin.import_role:
+        name: k8s_kubeadm
+        tasks_from: master.yml
+
+- name: Join worker nodes
+  hosts: k8s_nodes
+  become: true
+  gather_facts: false
+  vars:
+    k8s_master_host: "{{ groups['k8s_master'][0] }}"
+    k8s_join_command_from_master: "{{ hostvars[k8s_master_host].k8s_join_command }}"
+  tasks:
+    - name: Skip join in check mode
+      when: ansible_check_mode
+      ansible.builtin.debug:
+        msg: "Check mode: skipping kubeadm join on worker nodes."
+
+    - name: Ensure join command is present
+      when: not ansible_check_mode
+      ansible.builtin.assert:
+        that:
+          - k8s_join_command_from_master is defined
+          - (k8s_join_command_from_master | length) > 0
+        fail_msg: "Join command not available. Ensure the control-plane play ran successfully."
+
+    - name: Join nodes to the cluster
+      when: not ansible_check_mode
+      ansible.builtin.import_role:
+        name: k8s_kubeadm
+        tasks_from: nodes.yml
+
+- name: Configure NFS dynamic provisioner (optional)
+  hosts: k8s_master
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Apply NFS provisioner manifest
+      when: (k8s_enable_nfs | default(false)) | bool
+      ansible.builtin.import_role:
+        name: k8s_nfs
+        tasks_from: provisioner.yml
+
+

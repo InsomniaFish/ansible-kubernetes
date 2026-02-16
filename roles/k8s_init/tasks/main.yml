@@ -1,0 +1,13 @@
+- name: System bootstrap (firewall/hosts/swap/time/limits/modules/sysctl)
+  ansible.builtin.import_tasks: system.yml
+
+- name: Install and configure Docker
+  ansible.builtin.import_tasks: docker.yml
+
+- name: Install kubeadm/kubelet/kubectl
+  ansible.builtin.import_tasks: kubernetes.yml
+
+- name: Install and configure cri-dockerd
+  ansible.builtin.import_tasks: cri-dockerd.yml
+
+

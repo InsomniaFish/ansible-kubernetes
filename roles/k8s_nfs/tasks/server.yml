@@ -1,0 +1,47 @@
+---
+- name: Install NFS server packages
+  ansible.builtin.apt:
+    name:
+      - nfs-kernel-server
+    state: present
+    update_cache: true
+
+- name: Ensure export directory exists
+  ansible.builtin.file:
+    path: "{{ nfs_server_export_dir }}"
+    state: directory
+    owner: "{{ nfs_server_owner }}"
+    group: "{{ nfs_server_group }}"
+    mode: "{{ nfs_server_dir_mode }}"
+
+- name: Determine export CIDR (if not provided)
+  ansible.builtin.set_fact:
+    nfs_export_cidr_effective: >-
+      {{ ansible_default_ipv4.network }}/{{ ansible_default_ipv4.prefix
+        | default(ansible_default_ipv4.prefixlen | default('24')) }}
+  when: (nfs_export_cidr | trim) == ""
+
+- name: Set export CIDR from config
+  ansible.builtin.set_fact:
+    nfs_export_cidr_effective: "{{ nfs_export_cidr }}"
+  when: (nfs_export_cidr | trim) != ""
+
+- name: Configure /etc/exports
+  ansible.builtin.blockinfile:
+    path: /etc/exports
+    marker: "# {mark} ANSIBLE NFS EXPORTS"
+    block: |
+      {{ nfs_server_export_dir }} {{ nfs_export_cidr_effective }}({{ nfs_export_options }})
+
+- name: Reload NFS exports
+  when: not ansible_check_mode
+  ansible.builtin.command: exportfs -ra
+  changed_when: false
+
+- name: Enable and start NFS server
+  ansible.builtin.systemd:
+    name: nfs-server
+    enabled: true
+    state: started
+
+

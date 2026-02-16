@@ -1,0 +1,10 @@
+---
+- name: "Setup NFS server (inventory group: nfs_server)"
+  ansible.builtin.import_tasks: server.yml
+  when: inventory_hostname in (groups['nfs_server'] | default([]))
+
+- name: "Setup NFS client (inventory group: nfs_clients)"
+  ansible.builtin.import_tasks: client.yml
+  when: inventory_hostname in (groups['nfs_clients'] | default([]))
+
+

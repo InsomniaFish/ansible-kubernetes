@@ -1,0 +1,19 @@
+---
+- name: Determine NFS server IP from nfs_server inventory
+  ansible.builtin.set_fact:
+    nfs_server_ip: "{{ hostvars[groups['nfs_server'][0]].ansible_host | default(groups['nfs_server'][0]) }}"
+
+- name: Render NFS provisioner manifest
+  ansible.builtin.template:
+    src: nfs-provisioner.yaml.j2
+    dest: /root/nfs-provisioner.yaml
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Apply NFS provisioner manifest
+  when: not ansible_check_mode
+  ansible.builtin.command: "kubectl --kubeconfig /etc/kubernetes/admin.conf apply -f /root/nfs-provisioner.yaml --validate=false"
+  changed_when: false
+
+

@@ -1,0 +1,19 @@
+---
+# NFS server/client settings
+nfs_server_export_dir: "/srv/nfs"
+nfs_server_owner: "nobody"
+nfs_server_group: "nogroup"
+nfs_server_dir_mode: "0777"
+nfs_export_options: "rw,sync,no_subtree_check,no_root_squash"
+
+# Export CIDR. If empty, derived on server from ansible_default_ipv4.network/prefix.
+nfs_export_cidr: ""
+
+# Kubernetes NFS provisioner settings
+nfs_provisioner_namespace: "nfs-provisioner"
+nfs_provisioner_name: "nfs-subdir-external-provisioner"
+nfs_storageclass_name: "nfs-client"
+nfs_storageclass_default: true
+nfs_storageclass_archive_on_delete: "false"
+
+
