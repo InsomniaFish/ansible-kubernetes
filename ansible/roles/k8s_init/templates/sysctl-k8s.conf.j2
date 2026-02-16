@@ -1,6 +1,0 @@
-# Managed by Ansible (role: k8s_init)
-{% for item in (k8s_sysctl_params | dict2items | sort(attribute='key')) %}
-{{ item.key }} = {{ item.value }}
-{% endfor %}
-
-
