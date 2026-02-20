@@ -1,0 +1,12 @@
+---
+# Reset options (used when k8s_enable_reset=true)
+k8s_reset_stop_containerd: true
+k8s_reset_stop_docker: true
+k8s_reset_stop_cri_docker: true
+k8s_reset_remove_cni: true
+k8s_reset_remove_k8s_data: true
+k8s_reset_remove_kubeconfig: true
+k8s_reset_flush_iptables: false
+k8s_reset_flush_ipvs: false
+
+

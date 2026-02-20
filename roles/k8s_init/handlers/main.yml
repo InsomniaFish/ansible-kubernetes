@@ -27,6 +27,12 @@
     name: cri-docker
     state: restarted
 
+- name: restart containerd
+  when: not ansible_check_mode
+  ansible.builtin.systemd:
+    name: containerd
+    state: restarted
+
 - name: apply sysctl
   when: not ansible_check_mode
   ansible.builtin.command: sysctl --system

@@ -1,0 +1,95 @@
+---
+- name: Stop kubelet (if running)
+  when: not ansible_check_mode
+  ansible.builtin.systemd:
+    name: kubelet
+    state: stopped
+  failed_when: false
+
+- name: Stop containerd (optional)
+  when: (k8s_reset_stop_containerd | bool) and not ansible_check_mode
+  ansible.builtin.systemd:
+    name: containerd
+    state: stopped
+  failed_when: false
+
+- name: Stop docker (optional)
+  when: (k8s_reset_stop_docker | bool) and not ansible_check_mode
+  ansible.builtin.systemd:
+    name: docker
+    state: stopped
+  failed_when: false
+
+- name: Stop cri-docker (optional)
+  when: (k8s_reset_stop_cri_docker | bool) and not ansible_check_mode
+  ansible.builtin.systemd:
+    name: cri-docker
+    state: stopped
+  failed_when: false
+
+- name: Kill leftover kube-apiserver (if any)
+  when: not ansible_check_mode
+  ansible.builtin.shell: "pkill -f kube-apiserver || true"
+  args:
+    executable: /bin/bash
+  changed_when: false
+  failed_when: false
+
+- name: Remove static pod manifests (if any)
+  when: not ansible_check_mode
+  ansible.builtin.file:
+    path: /etc/kubernetes/manifests
+    state: absent
+  failed_when: false
+
+- name: Run kubeadm reset
+  when: not ansible_check_mode
+  ansible.builtin.command: kubeadm reset -f
+  changed_when: false
+  failed_when: false
+
+- name: Remove CNI config and state (optional)
+  when: (k8s_reset_remove_cni | bool) and not ansible_check_mode
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/cni/net.d
+    - /var/lib/cni
+    - /var/lib/calico
+    - /var/lib/flannel
+
+- name: Remove Kubernetes data (optional)
+  when: (k8s_reset_remove_k8s_data | bool) and not ansible_check_mode
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/kubernetes
+    - /var/lib/kubelet
+    - /var/lib/etcd
+
+- name: Remove kubeconfig (optional)
+  when: (k8s_reset_remove_kubeconfig | bool) and not ansible_check_mode
+  ansible.builtin.file:
+    path: /root/.kube
+    state: absent
+
+- name: Flush iptables (optional)
+  when: (k8s_reset_flush_iptables | bool) and not ansible_check_mode
+  ansible.builtin.shell: |
+    iptables -F
+    iptables -t nat -F
+    iptables -t mangle -F
+    iptables -X
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Flush IPVS tables (optional)
+  when: (k8s_reset_flush_ipvs | bool) and not ansible_check_mode
+  ansible.builtin.command: ipvsadm --clear
+  changed_when: false
+  failed_when: false
+
+

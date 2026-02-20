@@ -4,7 +4,8 @@ set -euo pipefail
 # Generate an inventory file for an arbitrary master + worker nodes.
 # Useful when you want to create a K8s cluster from any set of node IPs.
 
-OUT_FILE="${OUT_FILE:-/root/ansible/hosts.generated.ini}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+OUT_FILE="${OUT_FILE:-$SCRIPT_DIR/hosts.generated.ini}"
 
 usage() {
   cat <<'EOF'
@@ -13,7 +14,7 @@ Usage:
 
 Examples:
   ./gen_inventory.sh --master 192.168.48.100 --nodes 192.168.48.101,192.168.48.102 --user root --password 'elysia123.'
-  ./gen_inventory.sh --master 10.0.0.10 --nodes 10.0.0.11 --out /root/ansible/hosts.any.ini
+  ./gen_inventory.sh --master 10.0.0.10 --nodes 10.0.0.11 --out ./hosts.any.ini
 
 Notes:
   - If master_ip matches a local IPv4 on this machine, master01 will be set to ansible_connection=local.

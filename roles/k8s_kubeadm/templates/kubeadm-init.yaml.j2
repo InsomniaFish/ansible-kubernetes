@@ -18,6 +18,9 @@ imageRepository: {{ kubeadm_image_repository }}
 networking:
   dnsDomain: {{ kubeadm_dns_domain }}
   serviceSubnet: {{ kubeadm_service_subnet }}
+{% if (kubeadm_pod_subnet | default('') | trim) %}
+  podSubnet: {{ kubeadm_pod_subnet }}
+{% endif %}
 etcd:
   local:
     dataDir: /var/lib/etcd

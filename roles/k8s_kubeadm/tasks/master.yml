@@ -3,6 +3,12 @@
     path: /etc/kubernetes/admin.conf
   register: adminconf_stat
 
+- name: Validate CNI selection
+  ansible.builtin.assert:
+    that:
+      - k8s_network_plugin in ["calico", "flannel"]
+    fail_msg: "k8s_network_plugin must be 'calico' or 'flannel'."
+
 - name: Render kubeadm init config from template
   when: kubeadm_init_config_use_template | bool
   ansible.builtin.template:
@@ -57,6 +63,7 @@
     mode: "0600"
 
 - name: Copy Calico manifest to master
+  when: k8s_network_plugin == "calico"
   block:
     - name: Check Calico manifest exists (preferred path)
       ansible.builtin.stat:
@@ -100,6 +107,51 @@
         group: root
         mode: "0644"
 
+- name: Copy Flannel manifest to master
+  when: k8s_network_plugin == "flannel"
+  block:
+    - name: Check Flannel manifest exists (preferred path)
+      ansible.builtin.stat:
+        path: "{{ flannel_manifest_src }}"
+      delegate_to: localhost
+      run_once: true
+      register: flannel_manifest_stat_preferred
+      check_mode: false
+
+    - name: Check Flannel manifest exists (fallback path)
+      ansible.builtin.stat:
+        path: "{{ flannel_manifest_src_fallback }}"
+      delegate_to: localhost
+      run_once: true
+      register: flannel_manifest_stat_fallback
+      check_mode: false
+
+    - name: Select Flannel manifest source
+      ansible.builtin.set_fact:
+        flannel_manifest_effective_src: >-
+          {{
+            (flannel_manifest_src if flannel_manifest_stat_preferred.stat.exists else
+            (flannel_manifest_src_fallback if flannel_manifest_stat_fallback.stat.exists else ''))
+          }}
+      run_once: true
+      check_mode: false
+
+    - name: Fail if Flannel manifest is missing
+      ansible.builtin.fail:
+        msg: >-
+          Flannel manifest not found. Provide one of:
+          - {{ flannel_manifest_src }}
+          - {{ flannel_manifest_src_fallback }}
+      when: (flannel_manifest_effective_src | default('') | trim) == ""
+
+    - name: Copy Flannel manifest to master
+      ansible.builtin.copy:
+        src: "{{ flannel_manifest_effective_src }}"
+        dest: "{{ flannel_manifest_dest }}"
+        owner: root
+        group: root
+        mode: "0644"
+
 - name: Wait for Kubernetes API to be ready (before applying CNI)
   when: not ansible_check_mode
   ansible.builtin.command: "kubectl --kubeconfig /etc/kubernetes/admin.conf get --raw=/readyz"
@@ -110,18 +162,28 @@
   changed_when: false
 
 - name: Apply Calico CNI
-  when: not ansible_check_mode
+  when: not ansible_check_mode and k8s_network_plugin == "calico"
   ansible.builtin.command: "kubectl --kubeconfig /etc/kubernetes/admin.conf apply -f {{ calico_manifest_dest }} --validate=false"
   changed_when: false
 
 - name: Wait for Calico node daemonset rollout
-  when: not ansible_check_mode
+  when: not ansible_check_mode and k8s_network_plugin == "calico"
   ansible.builtin.command: "kubectl --kubeconfig /etc/kubernetes/admin.conf -n kube-system rollout status ds/calico-node --timeout=600s"
   changed_when: false
 
 - name: Wait for Calico kube-controllers deployment rollout
-  when: not ansible_check_mode
+  when: not ansible_check_mode and k8s_network_plugin == "calico"
   ansible.builtin.command: "kubectl --kubeconfig /etc/kubernetes/admin.conf -n kube-system rollout status deploy/calico-kube-controllers --timeout=600s"
+  changed_when: false
+
+- name: Apply Flannel CNI
+  when: not ansible_check_mode and k8s_network_plugin == "flannel"
+  ansible.builtin.command: "kubectl --kubeconfig /etc/kubernetes/admin.conf apply -f {{ flannel_manifest_dest }} --validate=false"
+  changed_when: false
+
+- name: Wait for Flannel daemonset rollout
+  when: not ansible_check_mode and k8s_network_plugin == "flannel"
+  ansible.builtin.command: "kubectl --kubeconfig /etc/kubernetes/admin.conf -n {{ flannel_namespace }} rollout status ds/{{ flannel_daemonset_name }} --timeout=600s"
   changed_when: false
 
 - name: Generate kubeadm join command

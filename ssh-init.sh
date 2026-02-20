@@ -6,7 +6,8 @@ set -euo pipefail
 # - Reads hosts from [k8s_nodes] and [k8s_master]
 # - Skips hosts marked with ansible_connection=local
 
-INV_FILE="${INV_FILE:-/root/ansible/hosts.ini}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+INV_FILE="${INV_FILE:-$SCRIPT_DIR/hosts.ini}"
 
 usage() {
   cat <<'EOF'
@@ -14,12 +15,12 @@ Usage:
   ssh-init.sh [--list]
 
 Examples:
-  cd /root/ansible
+  cd "$SCRIPT_DIR"
   ./ssh-init.sh
   ./ssh-init.sh --list
 
 Env overrides:
-  INV_FILE=/root/ansible/hosts.ini
+  INV_FILE=./hosts.ini
   ANSIBLE_USER=...
   ANSIBLE_PASSWORD=...
 EOF

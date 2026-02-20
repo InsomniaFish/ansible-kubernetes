@@ -22,6 +22,11 @@
     url: "https://download.docker.com/linux/ubuntu/gpg"
     dest: /tmp/docker.gpg.key
     mode: "0644"
+    timeout: 60
+  register: docker_gpg_download
+  retries: 3
+  delay: 5
+  until: docker_gpg_download is succeeded
 
 - name: Dearmor Docker GPG key into keyring
   when: not ansible_check_mode

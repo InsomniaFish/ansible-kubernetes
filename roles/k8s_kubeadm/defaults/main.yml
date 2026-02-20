@@ -14,12 +14,22 @@ kubeadm_kubernetes_version: "1.32.11"
 kubeadm_image_repository: "registry.aliyuncs.com/google_containers"
 kubeadm_dns_domain: "cluster.local"
 kubeadm_service_subnet: "10.96.0.0/12"
+k8s_network_plugin: "calico"
+kubeadm_pod_subnet: "{{ '10.244.0.0/16' if k8s_network_plugin == 'flannel' else '' }}"
 kubeadm_kubeproxy_mode: "ipvs"
 kubeadm_kubelet_cgroup_driver: "systemd"
-kubeadm_cri_socket: "unix:///var/run/cri-dockerd.sock"
+
+# Container runtime selection: "docker" or "containerd"
+k8s_container_runtime: "docker"
+kubeadm_cri_socket: >-
+  {{
+    'unix:///var/run/cri-dockerd.sock'
+    if k8s_container_runtime == 'docker'
+    else 'unix:///run/containerd/containerd.sock'
+  }}
 
 # Calico manifest (controller-side). Recommended to place it under the project:
-#   /root/ansible/files/calico.yaml
+#   ./files/calico.yaml (relative to playbook_dir)
 calico_manifest_src: "{{ playbook_dir }}/files/calico.yaml"
 # Backward-compatible fallback if you keep it outside the project:
 calico_manifest_src_fallback: "/root/calico.yaml"
@@ -28,8 +38,21 @@ calico_manifest_src_fallback: "/root/calico.yaml"
 kubeadm_init_config_dest: "/root/kubeadm-init.yaml"
 calico_manifest_dest: "/root/calico.yaml"
 
+# Flannel manifest (controller-side). Recommended to place it under the project:
+#   ./files/kube-flannel.yml (relative to playbook_dir)
+flannel_manifest_src: "{{ playbook_dir }}/files/kube-flannel.yml"
+flannel_manifest_src_fallback: "/root/kube-flannel.yml"
+flannel_manifest_dest: "/root/kube-flannel.yml"
+flannel_namespace: "kube-flannel"
+flannel_daemonset_name: "kube-flannel-ds"
+
 # Common
 k8s_join_ttl: "24h"
-k8s_cri_socket: "unix:///var/run/cri-dockerd.sock"
+k8s_cri_socket: >-
+  {{
+    'unix:///var/run/cri-dockerd.sock'
+    if k8s_container_runtime == 'docker'
+    else 'unix:///run/containerd/containerd.sock'
+  }}
 
 

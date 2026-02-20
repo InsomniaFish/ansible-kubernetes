@@ -1,13 +1,30 @@
+- name: Validate container runtime selection
+  ansible.builtin.assert:
+    that:
+      - k8s_container_runtime in ["docker", "containerd"]
+    fail_msg: "k8s_container_runtime must be 'docker' or 'containerd'."
+
+- name: Reset Kubernetes nodes (optional)
+  when: (k8s_enable_reset | default(false)) | bool
+  ansible.builtin.import_role:
+    name: k8s_reset
+
 - name: System bootstrap (firewall/hosts/swap/time/limits/modules/sysctl)
   ansible.builtin.import_tasks: system.yml
 
-- name: Install and configure Docker
+- name: Install and configure Docker (docker runtime)
+  when: k8s_container_runtime == "docker"
   ansible.builtin.import_tasks: docker.yml
+
+- name: Install and configure containerd (containerd runtime)
+  when: k8s_container_runtime == "containerd"
+  ansible.builtin.import_tasks: containerd.yml
 
 - name: Install kubeadm/kubelet/kubectl
   ansible.builtin.import_tasks: kubernetes.yml
 
-- name: Install and configure cri-dockerd
+- name: Install and configure cri-dockerd (docker runtime)
+  when: k8s_container_runtime == "docker"
   ansible.builtin.import_tasks: cri-dockerd.yml
 
 

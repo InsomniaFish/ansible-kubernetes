@@ -6,6 +6,12 @@ k8s_hosts_entries: []
 
 k8s_disable_swap: true
 
+# Run reset/cleanup steps before init when true.
+k8s_enable_reset: false
+
+# Container runtime selection: "docker" or "containerd"
+k8s_container_runtime: "docker"
+
 # Set to "" to skip.
 k8s_timezone: "Asia/Shanghai"
 
@@ -87,6 +93,13 @@ docker_storage_driver: "overlay2"
 docker_live_restore: true
 docker_cgroup_driver: "systemd"
 
+# Containerd packages (when k8s_container_runtime=containerd)
+containerd_packages:
+  - containerd.io
+
+# Pause image used by containerd (matches cri-dockerd default)
+containerd_pause_image: "registry.cn-hangzhou.aliyuncs.com/google_containers/pause:3.9"
+
 docker_packages:
   - docker-ce
   - docker-ce-cli
@@ -104,7 +117,7 @@ cri_dockerd_deb_url: "https://github.com/Mirantis/cri-dockerd/releases/download/
 cri_dockerd_pause_image: "registry.cn-hangzhou.aliyuncs.com/google_containers/pause:3.9"
 
 # Local artifact (controller-side). Put the deb here to avoid downloading during runs:
-#   /root/ansible/files/cri-dockerd.deb
+#   ./files/cri-dockerd.deb (relative to playbook_dir)
 cri_dockerd_local_deb_src: "{{ playbook_dir }}/files/cri-dockerd_0.3.22.3-0.ubuntu-{{ ansible_distribution_release }}_amd64.deb"
 cri_dockerd_local_deb_dest: "/tmp/cri-dockerd.deb"
 
