@@ -1,0 +1,12 @@
+---
+k8s_harbor_version: "2.10.2"
+k8s_harbor_install_dir: "/opt/harbor"
+k8s_harbor_data_dir: "/data/harbor"
+k8s_harbor_http_port: 80
+k8s_harbor_hostname: "{{ ansible_host | default(inventory_hostname) }}"
+k8s_harbor_external_url: "http://{{ k8s_harbor_hostname }}:{{ k8s_harbor_http_port }}"
+k8s_harbor_admin_password: "Harbor12345"
+k8s_harbor_db_password: "Harbor12345"
+k8s_harbor_redis_password: "Harbor12345"
+k8s_harbor_target_host: "{{ (groups['k8s_master'] | default([])) | first | default('master01') }}"
+

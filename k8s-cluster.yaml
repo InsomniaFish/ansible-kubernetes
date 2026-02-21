@@ -13,6 +13,16 @@
     - role: k8s_nfs
       when: (k8s_enable_nfs | default(false)) | bool
 
+- name: Install Harbor on master01 (optional)
+  hosts: k8s_master
+  become: true
+  gather_facts: true
+  roles:
+    - role: k8s_harbor
+      when:
+        - (k8s_enable_harbor | default(false)) | bool
+        - inventory_hostname == k8s_harbor_target_host
+
 - name: Initialize control-plane and install Calico
   hosts: k8s_master
   become: true

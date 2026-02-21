@@ -1,0 +1,36 @@
+hostname: "{{ k8s_harbor_hostname }}"
+
+http:
+  port: {{ k8s_harbor_http_port }}
+
+harbor_admin_password: "{{ k8s_harbor_admin_password }}"
+
+database:
+  password: "{{ k8s_harbor_db_password }}"
+  max_idle_conns: 100
+  max_open_conns: 900
+
+data_volume: {{ k8s_harbor_data_dir }}
+
+trivy:
+  ignore_unfixed: false
+  skip_update: false
+
+jobservice:
+  max_job_workers: 10
+  job_loggers:
+    - STD_OUTPUT
+    - FILE
+  logger_sweeper_duration: 1 #days
+
+notification:
+  webhook_job_max_retry: 10
+  webhook_job_http_client_timeout: 3 #seconds
+
+log:
+  level: info
+  local:
+    location: /var/log/harbor
+
+external_url: "{{ k8s_harbor_external_url }}"
+

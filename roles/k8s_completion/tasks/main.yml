@@ -1,0 +1,29 @@
+---
+- name: Install bash-completion
+  ansible.builtin.apt:
+    name: bash-completion
+    state: present
+    update_cache: true
+
+- name: Generate kubectl completion script
+  ansible.builtin.command: kubectl completion bash
+  register: kubectl_completion
+  changed_when: false
+
+- name: Install kubectl completion script
+  ansible.builtin.copy:
+    dest: /etc/bash_completion.d/kubectl
+    content: "{{ kubectl_completion.stdout }}"
+    mode: "0644"
+
+- name: Generate kubeadm completion script
+  ansible.builtin.command: kubeadm completion bash
+  register: kubeadm_completion
+  changed_when: false
+
+- name: Install kubeadm completion script
+  ansible.builtin.copy:
+    dest: /etc/bash_completion.d/kubeadm
+    content: "{{ kubeadm_completion.stdout }}"
+    mode: "0644"
+

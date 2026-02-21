@@ -23,6 +23,10 @@
 - name: Install kubeadm/kubelet/kubectl
   ansible.builtin.import_tasks: kubernetes.yml
 
+- name: Install kubectl/kubeadm bash completion
+  ansible.builtin.import_role:
+    name: k8s_completion
+
 - name: Install and configure cri-dockerd (docker runtime)
   when: k8s_container_runtime == "docker"
   ansible.builtin.import_tasks: cri-dockerd.yml

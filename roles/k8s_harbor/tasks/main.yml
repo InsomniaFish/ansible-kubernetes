@@ -1,0 +1,97 @@
+---
+- name: Ensure Harbor install directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ k8s_harbor_install_dir }}"
+    - "{{ k8s_harbor_data_dir }}"
+
+- name: Install Harbor dependencies
+  ansible.builtin.apt:
+    name:
+      - curl
+      - tar
+      - openssl
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-compose-plugin
+    state: present
+    update_cache: true
+
+- name: Ensure Docker service is running
+  ansible.builtin.service:
+    name: docker
+    state: started
+    enabled: true
+
+- name: Trust Harbor registry in Docker on all nodes (insecure registry)
+  ansible.builtin.shell: |
+    python3 - <<'PY'
+    import json, os
+    path = "/etc/docker/daemon.json"
+    target = "{{ k8s_harbor_hostname }}:{{ k8s_harbor_http_port }}"
+    data = {}
+    if os.path.exists(path):
+      try:
+        with open(path, "r") as f:
+          data = json.load(f) or {}
+      except Exception:
+        data = {}
+    reg = list(dict.fromkeys(data.get("insecure-registries", [])))
+    if target in reg:
+      print("unchanged")
+    else:
+      reg.append(target)
+      data["insecure-registries"] = reg
+      os.makedirs(os.path.dirname(path), exist_ok=True)
+      with open(path, "w") as f:
+        json.dump(data, f, indent=2, sort_keys=True)
+      print("changed")
+    PY
+  delegate_to: "{{ item }}"
+  register: harbor_insecure_registry
+  loop: "{{ groups['k8s_cluster'] | default([]) }}"
+  changed_when: false
+
+- name: Restart Docker to apply registry trust on all nodes
+  ansible.builtin.service:
+    name: docker
+    state: restarted
+  loop: "{{ harbor_insecure_registry.results | default([]) }}"
+  when: item.stdout is search("changed")
+  delegate_to: "{{ item.item }}"
+
+- name: Download Harbor offline installer
+  ansible.builtin.get_url:
+    url: "https://github.com/goharbor/harbor/releases/download/v{{ k8s_harbor_version }}/harbor-offline-installer-v{{ k8s_harbor_version }}.tgz"
+    dest: "{{ k8s_harbor_install_dir }}/harbor-offline-installer-v{{ k8s_harbor_version }}.tgz"
+    mode: "0644"
+
+- name: Extract Harbor installer
+  ansible.builtin.unarchive:
+    src: "{{ k8s_harbor_install_dir }}/harbor-offline-installer-v{{ k8s_harbor_version }}.tgz"
+    dest: "{{ k8s_harbor_install_dir }}"
+    remote_src: true
+    creates: "{{ k8s_harbor_install_dir }}/harbor"
+
+- name: Render Harbor config
+  ansible.builtin.template:
+    src: harbor.yml.j2
+    dest: "{{ k8s_harbor_install_dir }}/harbor/harbor.yml"
+    mode: "0644"
+  register: harbor_config
+
+- name: Check Harbor installed state
+  ansible.builtin.stat:
+    path: "{{ k8s_harbor_install_dir }}/harbor/common/config/registry/config.yml"
+  register: harbor_installed
+
+- name: Install Harbor
+  ansible.builtin.command: ./install.sh
+  args:
+    chdir: "{{ k8s_harbor_install_dir }}/harbor"
+  when: (not harbor_installed.stat.exists) or harbor_config.changed
+
