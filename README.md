@@ -6,15 +6,20 @@
 ├── files/                                    # controller 本地文件目录（离线/预下载/大文件），由 role 从这里分发到各节点
 │   ├── calico.yaml                            # Calico CNI manifest（master 上会 kubectl apply）
 │   ├── kube-flannel.yml                      # Flannel CNI manifest（如选择 flannel）
-│   └── cri-dockerd.deb                        # cri-dockerd 安装包（docker runtime 时由 k8s_init 分发到各节点安装）
+│   ├── cri-dockerd.deb                        # cri-dockerd 安装包（docker runtime 时由 k8s_init 分发到各节点安装）
+│   └── nginx-podip/                           # 示例镜像目录（nginx 页面显示 PodIP）
+│       ├── Dockerfile
+│       ├── entrypoint.sh
+│       └── default.conf
 ├── gen_inventory.sh                           # 生成 inventory 的脚本：用任意 master IP + nodes IP 生成一份 hosts.ini 风格文件
 ├── hosts.ini                                 # Inventory：定义 k8s_master/k8s_nodes/k8s_cluster + 登录账号密码（ansible_user/ansible_password）
 ├── install_ansible.sh                         # controller 侧安装 Ansible + sshpass（Ubuntu/Debian apt 方式）
-├── k8s-cluster.yaml                           # 入口 playbook：k8s_init → NFS(服务端/客户端) → master init+CNI → nodes join → NFS 动态存储
+├── k8s-cluster.yaml                           # 入口 playbook：k8s_init → NFS(可选) → Harbor(可选) → master init+CNI → nodes join → NFS 动态存储(可选)
+├── k8s-init-only.yaml                         # 仅初始化与安装运行时（不做 kubeadm init / join）
+├── k8s-reset.yaml                             # 单独执行重建清理
 ├── README.md                                 # 本说明文档（你正在看的这个文件）
 ├── roles/                                    # Ansible roles（把复杂逻辑拆分成可复用模块）
-│   ├── k8s_init/                              # 角色：所有节点的系统初始化 + 容器运行时 + kubelet/kubeadm/kubectl（可触发 reset）
-│   ├── k8s_reset/                             # 角色：重建前清理（kubeadm reset/CNI/数据目录/可选清理 iptables）
+│   ├── k8s_init/                              # 角色：所有节点系统初始化 + 容器运行时 + kubelet/kubeadm/kubectl（可触发 reset）
 │   │   ├── defaults/
 │   │   │   └── main.yml                       # k8s_init 默认变量（sysctl/modules/docker 镜像加速/k8s 版本渠道/本地 deb 路径等）
 │   │   ├── handlers/
@@ -30,6 +35,14 @@
 │   │       ├── chrony.conf.j2                 # chrony 配置模板（时间同步）
 │   │       ├── daemon.json.j2                 # Docker daemon.json 模板（镜像加速/cgroupdriver/log 等）
 │   │       └── sysctl-k8s.conf.j2             # K8s sysctl 模板（ip_forward/bridge-nf-call 等）
+│   ├── k8s_reset/                             # 角色：重建前清理（kubeadm reset/CNI/数据目录/可选清理 iptables）
+│   │   ├── defaults/
+│   │   │   └── main.yml                       # k8s_reset 默认变量（是否清理 iptables/IPVS）
+│   │   └── tasks/
+│   │       └── main.yml                       # 重建清理任务入口
+│   ├── k8s_completion/                        # 角色：kubectl/kubeadm bash 补全
+│   │   └── tasks/
+│   │       └── main.yml
 │   ├── k8s_nfs/                               # 角色：部署 NFS（由 nfs_server/nfs_clients 分组决定）+ K8s 动态存储
 │   │   ├── defaults/
 │   │   │   └── main.yml                       # NFS 默认变量（导出目录/权限/StorageClass 等）
@@ -40,14 +53,21 @@
 │   │   │   └── main.yml                       # 任务入口：server.yml (master) + client.yml (all)
 │   │   └── templates/
 │   │       └── nfs-provisioner.yaml.j2        # NFS Provisioner 清单模板（Deployment/RBAC/StorageClass）
-│   └── k8s_kubeadm/                           # 角色：master kubeadm init + apply CNI + 生成 join 命令；nodes 执行 join
+│   ├── k8s_kubeadm/                           # 角色：master kubeadm init + apply CNI + 生成 join 命令；nodes 执行 join
+│   │   ├── defaults/
+│   │   │   └── main.yml                       # k8s_kubeadm 默认变量（kubeadm 模板变量、CNI 选择与 manifest 路径、join ttl 等）
+│   │   ├── tasks/
+│   │   │   ├── master.yml                     # master 任务：渲染 kubeadm 配置 → kubeadm init → 等待 API ready → apply CNI → 生成 join 命令
+│   │   │   └── nodes.yml                      # node 任务：判断是否已 join → kubeadm join（使用 master 生成的 join 命令）
+│   │   └── templates/
+│   │       └── kubeadm-init.yaml.j2           # kubeadm init 配置模板（advertiseAddress/版本/仓库/serviceSubnet/ipvs/cgroupDriver 等）
+│   └── k8s_harbor/                            # 角色：在 master01 上部署 Harbor（不进 K8s），并让所有节点信任该仓库
 │       ├── defaults/
-│       │   └── main.yml                       # k8s_kubeadm 默认变量（kubeadm 模板变量、CNI 选择与 manifest 路径、join ttl 等）
+│       │   └── main.yml                       # Harbor 默认变量（版本/目录/端口/账号密码/目标主机等）
 │       ├── tasks/
-│       │   ├── master.yml                     # master 任务：渲染 kubeadm 配置 → kubeadm init → 等待 API ready → apply CNI → 生成 join 命令
-│       │   └── nodes.yml                      # node 任务：判断是否已 join → kubeadm join（使用 master 生成的 join 命令）
+│       │   └── main.yml                       # 安装 Harbor + 写入 insecure-registries + 重启 Docker
 │       └── templates/
-│           └── kubeadm-init.yaml.j2           # kubeadm init 配置模板（advertiseAddress/版本/仓库/serviceSubnet/ipvs/cgroupDriver 等）
+│           └── harbor.yml.j2                  # Harbor 配置模板
 └── ssh-init.sh                                # 纯 bash 脚本：用 sshpass 批量检查 22 端口+SSH 密码登录是否正常（不依赖 ansible）
 ```
 
@@ -82,6 +102,9 @@ ansible-playbook k8s-cluster.yaml -e k8s_enable_nfs=true
 
 # 可选：重建前清理（k8s_init 内触发 k8s_reset）
 ansible-playbook k8s-cluster.yaml -e k8s_enable_reset=true
+
+# 可选：安装 Harbor（master01，非 K8s）
+ansible-playbook k8s-cluster.yaml -e k8s_enable_harbor=true
 
 # 单独执行重建清理
 ansible-playbook k8s-reset.yaml
