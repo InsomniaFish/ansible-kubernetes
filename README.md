@@ -108,6 +108,21 @@ ansible-playbook k8s-cluster.yaml -e k8s_enable_harbor=true
 
 # 单独执行重建清理
 ansible-playbook k8s-reset.yaml
+
+# 示例：未近安装过k8s集群，再一次性安装集群（reset + docker + calico + 补全 + nfs + harbor）
+ansible-playbook k8s-cluster.yaml \
+  -e k8s_container_runtime=docker \
+  -e k8s_network_plugin=calico \
+  -e k8s_enable_nfs=true \
+  -e k8s_enable_harbor=true
+
+# 示例：已近安装过k8s集群，再一次性安装集群（reset + docker + calico + 补全 + nfs + harbor）
+ansible-playbook k8s-cluster.yaml \
+  -e k8s_enable_reset=true \
+  -e k8s_container_runtime=docker \
+  -e k8s_network_plugin=calico \
+  -e k8s_enable_nfs=true \
+  -e k8s_enable_harbor=true
 ```
 
 ## 运行时与网络插件选择
