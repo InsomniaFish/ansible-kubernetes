@@ -1,5 +1,6 @@
 {
   "registry-mirrors": {{ docker_registry_mirrors | to_json }},
+  "insecure-registries": {{ docker_insecure_registries | to_json }},
   "exec-opts": ["native.cgroupdriver={{ docker_cgroup_driver }}"],
   "log-driver": "json-file",
   "log-opts": {

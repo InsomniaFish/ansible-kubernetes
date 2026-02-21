@@ -55,6 +55,10 @@
     group: root
     mode: "0755"
 
+- name: Normalize Docker insecure registries
+  ansible.builtin.set_fact:
+    docker_insecure_registries: "{{ docker_insecure_registries | default([]) }}"
+
 - name: Configure Docker daemon.json
   ansible.builtin.template:
     src: daemon.json.j2
