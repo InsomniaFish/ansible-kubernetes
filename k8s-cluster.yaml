@@ -60,6 +60,14 @@
         name: k8s_kubeadm
         tasks_from: nodes.yml
 
+- name: Install Wireshark + WireMCP on all nodes (optional)
+  hosts: k8s_cluster
+  become: true
+  gather_facts: true
+  roles:
+    - role: k8s_install_wireshark
+      when: (k8s_enable_wireshark | default(false)) | bool
+
 - name: Configure NFS dynamic provisioner (optional)
   hosts: k8s_master
   become: true

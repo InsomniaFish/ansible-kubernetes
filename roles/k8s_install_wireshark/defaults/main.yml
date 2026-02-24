@@ -1,0 +1,15 @@
+# 是否启用（主入口开关）：-e k8s_enable_wireshark=true
+k8s_enable_wireshark: false
+
+# tshark 包名（Ubuntu/Debian）
+wireshark_package: tshark
+
+# Node.js 大版本（用于 nodesource 安装脚本）
+wiremcp_node_major: "20"
+
+# WireMCP 安装目录
+wiremcp_install_dir: /opt/WireMCP
+
+# WireMCP git 仓库地址
+wiremcp_repo: "https://github.com/0xkoda/WireMCP.git"
+

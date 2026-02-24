@@ -1,0 +1,61 @@
+---
+- name: Install tshark
+  ansible.builtin.apt:
+    name: "{{ wireshark_package }}"
+    state: present
+    update_cache: true
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+
+- name: Set tshark to non-interactive (allow non-superusers)
+  ansible.builtin.debconf:
+    name: wireshark-common
+    question: wireshark-common/install-setuid
+    value: "false"
+    vtype: boolean
+
+- name: Check if Node.js is already installed
+  ansible.builtin.command: node --version
+  register: node_check
+  changed_when: false
+  failed_when: false
+
+- name: Add NodeSource repository
+  when: node_check.rc != 0
+  block:
+    - name: Download NodeSource setup script
+      ansible.builtin.get_url:
+        url: "https://deb.nodesource.com/setup_{{ wiremcp_node_major }}.x"
+        dest: /tmp/nodesource_setup.sh
+        mode: "0755"
+
+    - name: Run NodeSource setup script
+      ansible.builtin.command: bash /tmp/nodesource_setup.sh
+      changed_when: true
+
+    - name: Install Node.js
+      ansible.builtin.apt:
+        name: nodejs
+        state: present
+        update_cache: true
+
+- name: Check if WireMCP already cloned
+  ansible.builtin.stat:
+    path: "{{ wiremcp_install_dir }}/index.js"
+  register: wiremcp_stat
+
+- name: Clone WireMCP repository
+  ansible.builtin.git:
+    repo: "{{ wiremcp_repo }}"
+    dest: "{{ wiremcp_install_dir }}"
+    version: main
+    force: false
+  when: not wiremcp_stat.stat.exists
+
+- name: Install WireMCP npm dependencies
+  ansible.builtin.command: npm install --prefix {{ wiremcp_install_dir }}
+  args:
+    chdir: "{{ wiremcp_install_dir }}"
+    creates: "{{ wiremcp_install_dir }}/node_modules/.package-lock.json"
+  changed_when: true
+
