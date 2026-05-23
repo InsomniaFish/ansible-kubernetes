@@ -1,0 +1,832 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ monitoring_namespace }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ prometheus_name }}
+  namespace: {{ monitoring_namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ prometheus_name }}
+rules:
+  - apiGroups: [""]
+    resources:
+      - nodes
+      - nodes/metrics
+      - nodes/proxy
+      - services
+      - endpoints
+      - pods
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["extensions", "networking.k8s.io"]
+    resources:
+      - ingresses
+    verbs: ["get", "list", "watch"]
+  - nonResourceURLs: ["/metrics", "/metrics/cadvisor"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ prometheus_name }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ prometheus_name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ prometheus_name }}
+    namespace: {{ monitoring_namespace }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ alertmanager_name }}
+  namespace: {{ monitoring_namespace }}
+data:
+  alertmanager.yml: |
+    global:
+      resolve_timeout: 5m
+    route:
+{% if prometheusalert_enable | bool %}
+      receiver: prometheusalert-feishu
+{% else %}
+      receiver: default
+{% endif %}
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 12h
+    receivers:
+{% if prometheusalert_enable | bool %}
+      - name: prometheusalert-feishu
+        webhook_configs:
+          - url: {{ prometheusalert_webhook_url | quote }}
+            send_resolved: true
+{% else %}
+      - name: default
+{% endif %}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ prometheus_name }}
+  namespace: {{ monitoring_namespace }}
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: {{ prometheus_scrape_interval }}
+      evaluation_interval: {{ prometheus_scrape_interval }}
+
+    alerting:
+      alertmanagers:
+        - static_configs:
+            - targets:
+                - {{ alertmanager_name }}:9093
+
+    rule_files: []
+
+    scrape_configs:
+      - job_name: prometheus
+        static_configs:
+          - targets:
+              - localhost:9090
+
+      - job_name: alertmanager
+        static_configs:
+          - targets:
+              - {{ alertmanager_name }}:9093
+
+{% if prometheusalert_enable | bool %}
+      - job_name: prometheus-alert
+        static_configs:
+          - targets:
+              - {{ prometheusalert_name }}:8080
+{% endif %}
+
+      - job_name: node-exporter
+        kubernetes_sd_configs:
+          - role: endpoints
+            namespaces:
+              names:
+                - {{ monitoring_namespace }}
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_name]
+            action: keep
+            regex: {{ node_exporter_name }}
+
+      - job_name: kube-state-metrics
+        static_configs:
+          - targets:
+              - {{ kube_state_metrics_name }}:8080
+
+      - job_name: kubernetes-apiservers
+        kubernetes_sd_configs:
+          - role: endpoints
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        relabel_configs:
+          - source_labels:
+              - __meta_kubernetes_namespace
+              - __meta_kubernetes_service_name
+              - __meta_kubernetes_endpoint_port_name
+            action: keep
+            regex: default;kubernetes;https
+
+      - job_name: kubernetes-nodes
+        kubernetes_sd_configs:
+          - role: node
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          insecure_skip_verify: true
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        relabel_configs:
+          - action: labelmap
+            regex: __meta_kubernetes_node_label_(.+)
+
+      - job_name: kubernetes-nodes-cadvisor
+        kubernetes_sd_configs:
+          - role: node
+        scheme: https
+        metrics_path: /metrics/cadvisor
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          insecure_skip_verify: true
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        relabel_configs:
+          - action: labelmap
+            regex: __meta_kubernetes_node_label_(.+)
+
+      - job_name: kubernetes-pods
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+          - action: labelmap
+            regex: __meta_kubernetes_pod_label_(.+)
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: kubernetes_namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: kubernetes_pod_name
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ grafana_name }}-admin
+  namespace: {{ monitoring_namespace }}
+type: Opaque
+stringData:
+  admin-user: {{ grafana_admin_user }}
+  admin-password: {{ grafana_admin_password }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ grafana_name }}-provisioning
+  namespace: {{ monitoring_namespace }}
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://{{ prometheus_name }}:9090
+        isDefault: true
+        editable: true
+      - name: Alertmanager
+        type: alertmanager
+        access: proxy
+        url: http://{{ alertmanager_name }}:9093
+        jsonData:
+          implementation: prometheus
+        editable: true
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: default
+        orgId: 1
+        folder: Kubernetes
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ prometheus_name }}
+  namespace: {{ monitoring_namespace }}
+  labels:
+    app: {{ prometheus_name }}
+spec:
+  type: {{ prometheus_service_type }}
+{% if prometheus_service_type == 'NodePort' %}
+  ports:
+    - name: web
+      port: 9090
+      targetPort: web
+      nodePort: {{ prometheus_node_port }}
+{% else %}
+  ports:
+    - name: web
+      port: 9090
+      targetPort: web
+{% endif %}
+  selector:
+    app: {{ prometheus_name }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ alertmanager_name }}
+  namespace: {{ monitoring_namespace }}
+  labels:
+    app: {{ alertmanager_name }}
+spec:
+  type: {{ alertmanager_service_type }}
+{% if alertmanager_service_type == 'NodePort' %}
+  ports:
+    - name: web
+      port: 9093
+      targetPort: web
+      nodePort: {{ alertmanager_node_port }}
+{% else %}
+  ports:
+    - name: web
+      port: 9093
+      targetPort: web
+{% endif %}
+  selector:
+    app: {{ alertmanager_name }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ grafana_name }}
+  namespace: {{ monitoring_namespace }}
+  labels:
+    app: {{ grafana_name }}
+spec:
+  type: {{ grafana_service_type }}
+{% if grafana_service_type == 'NodePort' %}
+  ports:
+    - name: web
+      port: 3000
+      targetPort: web
+      nodePort: {{ grafana_node_port }}
+{% else %}
+  ports:
+    - name: web
+      port: 3000
+      targetPort: web
+{% endif %}
+  selector:
+    app: {{ grafana_name }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ node_exporter_name }}
+  namespace: {{ monitoring_namespace }}
+  labels:
+    app: {{ node_exporter_name }}
+spec:
+  clusterIP: None
+  ports:
+    - name: metrics
+      port: 9100
+      targetPort: metrics
+  selector:
+    app: {{ node_exporter_name }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ kube_state_metrics_name }}
+  namespace: {{ monitoring_namespace }}
+  labels:
+    app: {{ kube_state_metrics_name }}
+spec:
+  ports:
+    - name: http-metrics
+      port: 8080
+      targetPort: http-metrics
+    - name: telemetry
+      port: 8081
+      targetPort: telemetry
+  selector:
+    app: {{ kube_state_metrics_name }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ prometheus_name }}
+  namespace: {{ monitoring_namespace }}
+  labels:
+    app: {{ prometheus_name }}
+spec:
+  replicas: {{ prometheus_replicas }}
+  selector:
+    matchLabels:
+      app: {{ prometheus_name }}
+  template:
+    metadata:
+      labels:
+        app: {{ prometheus_name }}
+    spec:
+      serviceAccountName: {{ prometheus_name }}
+      containers:
+        - name: prometheus
+          image: {{ prometheus_image }}
+          imagePullPolicy: IfNotPresent
+          args:
+            - --config.file=/etc/prometheus/prometheus.yml
+            - --storage.tsdb.path=/prometheus
+            - --storage.tsdb.retention.time={{ prometheus_retention }}
+            - --web.enable-lifecycle
+          ports:
+            - name: web
+              containerPort: 9090
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: web
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: web
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: {{ prometheus_resources_requests_cpu }}
+              memory: {{ prometheus_resources_requests_memory }}
+            limits:
+              cpu: {{ prometheus_resources_limits_cpu }}
+              memory: {{ prometheus_resources_limits_memory }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/prometheus
+            - name: data
+              mountPath: /prometheus
+      volumes:
+        - name: config
+          configMap:
+            name: {{ prometheus_name }}
+{% if prometheus_use_pvc | bool %}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ prometheus_name }}
+{% else %}
+        - name: data
+          emptyDir: {}
+{% endif %}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ alertmanager_name }}
+  namespace: {{ monitoring_namespace }}
+  labels:
+    app: {{ alertmanager_name }}
+spec:
+  replicas: {{ alertmanager_replicas }}
+  selector:
+    matchLabels:
+      app: {{ alertmanager_name }}
+  template:
+    metadata:
+      labels:
+        app: {{ alertmanager_name }}
+    spec:
+      containers:
+        - name: alertmanager
+          image: {{ alertmanager_image }}
+          imagePullPolicy: IfNotPresent
+          args:
+            - --config.file=/etc/alertmanager/alertmanager.yml
+            - --storage.path=/alertmanager
+          ports:
+            - name: web
+              containerPort: 9093
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: web
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: config
+              mountPath: /etc/alertmanager
+            - name: data
+              mountPath: /alertmanager
+      volumes:
+        - name: config
+          configMap:
+            name: {{ alertmanager_name }}
+        - name: data
+          emptyDir: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ grafana_name }}
+  namespace: {{ monitoring_namespace }}
+  labels:
+    app: {{ grafana_name }}
+spec:
+  replicas: {{ grafana_replicas }}
+  selector:
+    matchLabels:
+      app: {{ grafana_name }}
+  template:
+    metadata:
+      labels:
+        app: {{ grafana_name }}
+    spec:
+      containers:
+        - name: grafana
+          image: {{ grafana_image }}
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: GF_SECURITY_ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ grafana_name }}-admin
+                  key: admin-user
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ grafana_name }}-admin
+                  key: admin-password
+            - name: GF_USERS_ALLOW_SIGN_UP
+              value: "false"
+          ports:
+            - name: web
+              containerPort: 3000
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: web
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          volumeMounts:
+            - name: provisioning
+              mountPath: /etc/grafana/provisioning
+            - name: data
+              mountPath: /var/lib/grafana
+            - name: dashboards
+              mountPath: /var/lib/grafana/dashboards
+      volumes:
+        - name: provisioning
+          configMap:
+            name: {{ grafana_name }}-provisioning
+        - name: dashboards
+          emptyDir: {}
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ kube_state_metrics_name }}
+  namespace: {{ monitoring_namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ kube_state_metrics_name }}
+rules:
+  - apiGroups: [""]
+    resources:
+      - configmaps
+      - secrets
+      - nodes
+      - pods
+      - services
+      - serviceaccounts
+      - resourcequotas
+      - replicationcontrollers
+      - limitranges
+      - persistentvolumeclaims
+      - persistentvolumes
+      - namespaces
+      - endpoints
+    verbs: ["list", "watch"]
+  - apiGroups: ["apps"]
+    resources:
+      - statefulsets
+      - daemonsets
+      - deployments
+      - replicasets
+    verbs: ["list", "watch"]
+  - apiGroups: ["batch"]
+    resources:
+      - cronjobs
+      - jobs
+    verbs: ["list", "watch"]
+  - apiGroups: ["autoscaling"]
+    resources:
+      - horizontalpodautoscalers
+    verbs: ["list", "watch"]
+  - apiGroups: ["policy"]
+    resources:
+      - poddisruptionbudgets
+    verbs: ["list", "watch"]
+  - apiGroups: ["certificates.k8s.io"]
+    resources:
+      - certificatesigningrequests
+    verbs: ["list", "watch"]
+  - apiGroups: ["discovery.k8s.io"]
+    resources:
+      - endpointslices
+    verbs: ["list", "watch"]
+  - apiGroups: ["storage.k8s.io"]
+    resources:
+      - storageclasses
+      - volumeattachments
+    verbs: ["list", "watch"]
+  - apiGroups: ["admissionregistration.k8s.io"]
+    resources:
+      - mutatingwebhookconfigurations
+      - validatingwebhookconfigurations
+    verbs: ["list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources:
+      - networkpolicies
+      - ingresses
+    verbs: ["list", "watch"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources:
+      - leases
+    verbs: ["list", "watch"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources:
+      - clusterrolebindings
+      - clusterroles
+      - rolebindings
+      - roles
+    verbs: ["list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ kube_state_metrics_name }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ kube_state_metrics_name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ kube_state_metrics_name }}
+    namespace: {{ monitoring_namespace }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ kube_state_metrics_name }}
+  namespace: {{ monitoring_namespace }}
+  labels:
+    app: {{ kube_state_metrics_name }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ kube_state_metrics_name }}
+  template:
+    metadata:
+      labels:
+        app: {{ kube_state_metrics_name }}
+    spec:
+      serviceAccountName: {{ kube_state_metrics_name }}
+      containers:
+        - name: kube-state-metrics
+          image: {{ kube_state_metrics_image }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http-metrics
+              containerPort: 8080
+            - name: telemetry
+              containerPort: 8081
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: http-metrics
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http-metrics
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65534
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ node_exporter_name }}
+  namespace: {{ monitoring_namespace }}
+  labels:
+    app: {{ node_exporter_name }}
+spec:
+  selector:
+    matchLabels:
+      app: {{ node_exporter_name }}
+  template:
+    metadata:
+      labels:
+        app: {{ node_exporter_name }}
+    spec:
+      hostNetwork: true
+      hostPID: true
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: node-exporter
+          image: {{ node_exporter_image }}
+          imagePullPolicy: IfNotPresent
+          args:
+            - --path.procfs=/host/proc
+            - --path.sysfs=/host/sys
+            - --path.rootfs=/host/root
+            - --path.udev.data=/host/root/run/udev/data
+            - --web.listen-address=0.0.0.0:9100
+          ports:
+            - name: metrics
+              containerPort: 9100
+          volumeMounts:
+            - name: proc
+              mountPath: /host/proc
+              readOnly: true
+            - name: sys
+              mountPath: /host/sys
+              readOnly: true
+            - name: root
+              mountPath: /host/root
+              readOnly: true
+              mountPropagation: HostToContainer
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65534
+      volumes:
+        - name: proc
+          hostPath:
+            path: /proc
+        - name: sys
+          hostPath:
+            path: /sys
+        - name: root
+          hostPath:
+            path: /
+{% if prometheusalert_enable | bool %}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ prometheusalert_name }}
+  namespace: {{ monitoring_namespace }}
+data:
+  app.conf: |
+{{ lookup('template', 'prometheusalert-app.conf.j2') | indent(4, true) }}
+  user.csv: |
+    日期,号码,姓名,备用号码1,备用联系人1,备用号码2,备用联系人2
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ prometheusalert_name }}
+  namespace: {{ monitoring_namespace }}
+  labels:
+    app: {{ prometheusalert_name }}
+spec:
+  type: {{ prometheusalert_service_type }}
+{% if prometheusalert_service_type == 'NodePort' %}
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      nodePort: {{ prometheusalert_node_port }}
+{% else %}
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+{% endif %}
+  selector:
+    app: {{ prometheusalert_name }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ prometheusalert_name }}
+  namespace: {{ monitoring_namespace }}
+  labels:
+    app: {{ prometheusalert_name }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ prometheusalert_name }}
+  template:
+    metadata:
+      labels:
+        app: {{ prometheusalert_name }}
+    spec:
+      containers:
+        - name: prometheus-alert
+          image: {{ prometheusalert_image }}
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: TZ
+              value: Asia/Shanghai
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: config
+              mountPath: /app/conf/app.conf
+              subPath: app.conf
+            - name: config
+              mountPath: /app/user.csv
+              subPath: user.csv
+            - name: data
+              mountPath: /app/db
+      volumes:
+        - name: config
+          configMap:
+            name: {{ prometheusalert_name }}
+            items:
+              - key: app.conf
+                path: app.conf
+              - key: user.csv
+                path: user.csv
+        - name: data
+          emptyDir: {}
+{% endif %}
+{% if prometheus_use_pvc | bool %}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ prometheus_name }}
+  namespace: {{ monitoring_namespace }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ prometheus_storage_size }}
+{% if (prometheus_storage_class | default('') | trim) != '' %}
+  storageClassName: {{ prometheus_storage_class }}
+{% endif %}
+{% endif %}

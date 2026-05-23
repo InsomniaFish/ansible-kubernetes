@@ -9,6 +9,11 @@
       - k8s_network_plugin in ["calico", "flannel"]
     fail_msg: "k8s_network_plugin must be 'calico' or 'flannel'."
 
+- name: Derive kubeadm kubernetes version from installed package
+  ansible.builtin.set_fact:
+    kubeadm_kubernetes_version: "{{ (hostvars[inventory_hostname]['k8s_deb_version'] | default('') | regex_replace('-.*', '')) if (hostvars[inventory_hostname]['k8s_deb_version'] | default('') | trim) != '' else kubeadm_kubernetes_version }}"
+  when: (hostvars[inventory_hostname]['k8s_deb_version'] | default('') | trim) != ''
+
 - name: Render kubeadm init config from template
   when: kubeadm_init_config_use_template | bool
   ansible.builtin.template:

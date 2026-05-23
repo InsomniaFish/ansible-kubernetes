@@ -1,0 +1,60 @@
+---
+k8s_enable_prometheus: false
+
+monitoring_namespace: "monitoring"
+
+prometheus_version: "v3.11.3"
+prometheus_image: "prom/prometheus:{{ prometheus_version }}"
+prometheus_name: "prometheus"
+prometheus_replicas: 1
+prometheus_retention: "15d"
+prometheus_scrape_interval: "15s"
+prometheus_resources_requests_cpu: "200m"
+prometheus_resources_requests_memory: "512Mi"
+prometheus_resources_limits_cpu: "1000m"
+prometheus_resources_limits_memory: "2Gi"
+prometheus_service_type: "NodePort"
+prometheus_node_port: 30090
+prometheus_use_pvc: false
+prometheus_storage_class: ""
+prometheus_storage_size: "20Gi"
+
+alertmanager_version: "v0.32.1"
+alertmanager_image: "prom/alertmanager:{{ alertmanager_version }}"
+alertmanager_name: "alertmanager"
+alertmanager_replicas: 1
+alertmanager_service_type: "ClusterIP"
+alertmanager_node_port: 30093
+
+grafana_version: "12.0.2"
+grafana_image: "grafana/grafana:{{ grafana_version }}"
+grafana_name: "grafana"
+grafana_replicas: 1
+grafana_admin_user: "admin"
+grafana_admin_password: "admin123"
+grafana_service_type: "NodePort"
+grafana_node_port: 30030
+
+node_exporter_version: "v1.11.1"
+node_exporter_image: "prom/node-exporter:{{ node_exporter_version }}"
+node_exporter_name: "node-exporter"
+
+kube_state_metrics_version: "v2.18.0"
+kube_state_metrics_image: "registry.k8s.io/kube-state-metrics/kube-state-metrics:{{ kube_state_metrics_version }}"
+kube_state_metrics_name: "kube-state-metrics"
+
+prometheusalert_enable: true
+prometheusalert_version: "v4.9.2"
+prometheusalert_image: "feiyu563/prometheus-alert:{{ prometheusalert_version }}"
+prometheusalert_name: "prometheus-alert"
+prometheusalert_service_type: "NodePort"
+prometheusalert_node_port: 30080
+prometheusalert_login_user: "prometheusalert"
+prometheusalert_login_password: "prometheusalert"
+prometheusalert_feishu_webhook_url: ""
+prometheusalert_alert_type: "fs"
+prometheusalert_alert_tpl: "prometheus-fs"
+prometheusalert_webhook_url: "http://{{ prometheusalert_name }}:8080/prometheusalert?type={{ prometheusalert_alert_type }}&tpl={{ prometheusalert_alert_tpl }}"
+
+# Backward compatible alias
+prometheus_namespace: "{{ monitoring_namespace }}"

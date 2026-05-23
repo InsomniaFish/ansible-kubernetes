@@ -1,0 +1,54 @@
+---
+# 分析 Calico IPIP 抓包数据
+
+- name: "分析抓包数据"
+  hosts: k8s_nodes
+  gather_facts: false
+  tasks:
+    - name: 读取并展示 ICMP 相关的包
+      ansible.builtin.shell: |
+        echo "=== {{ inventory_hostname }} - ICMP 包 (Ping) ==="
+        cat /tmp/tshark_{{ inventory_hostname }}_ipip.txt 2>/dev/null | grep -E '\\|1\\|' | grep -v 'Application Data' | head -20
+      register: icmp_capture
+      changed_when: false
+      ignore_errors: true
+
+    - name: 展示 ICMP 包
+      ansible.builtin.debug:
+        msg: "{{ icmp_capture.stdout_lines }}"
+      ignore_errors: true
+
+    - name: 读取并展示 IPIP 包 (Protocol 4)
+      ansible.builtin.shell: |
+        echo "=== {{ inventory_hostname }} - IPIP 封装包 (Protocol 4) ==="
+        cat /tmp/tshark_{{ inventory_hostname }}_ipip.txt 2>/dev/null | grep -E '\\|4\\|' | head -20
+      register: ipip_capture
+      changed_when: false
+      ignore_errors: true
+
+    - name: 展示 IPIP 包
+      ansible.builtin.debug:
+        msg: "{{ ipip_capture.stdout_lines }}"
+      ignore_errors: true
+
+    - name: 展示所有抓包统计
+      ansible.builtin.shell: |
+        echo "=== {{ inventory_hostname }} - 抓包统计 ==="
+        echo "总包数：$(wc -l < /tmp/tshark_{{ inventory_hostname }}_ipip.txt)"
+        echo "ICMP 包数：$(grep -c '\\|1\\|' /tmp/tshark_{{ inventory_hostname }}_ipip.txt 2>/dev/null || echo 0)"
+        echo "TCP 包数：$(grep -c '\\|6\\|' /tmp/tshark_{{ inventory_hostname }}_ipip.txt 2>/dev/null || echo 0)"
+        echo "UDP 包数：$(grep -c '\\|17\\|' /tmp/tshark_{{ inventory_hostname }}_ipip.txt 2>/dev/null || echo 0)"
+        echo "IPIP 包数：$(grep -c '\\|4\\|' /tmp/tshark_{{ inventory_hostname }}_ipip.txt 2>/dev/null || echo 0)"
+        echo ""
+        echo "=== ens33 接口 ==="
+        grep -E 'ens33' /tmp/tshark_{{ inventory_hostname }}_ipip.txt 2>/dev/null | wc -l
+        echo "=== tunl0 接口 ==="
+        grep -E 'tunl0' /tmp/tshark_{{ inventory_hostname }}_ipip.txt 2>/dev/null | wc -l
+      register: stats
+      changed_when: false
+      ignore_errors: true
+
+    - name: 展示统计
+      ansible.builtin.debug:
+        msg: "{{ stats.stdout_lines }}"
+      ignore_errors: true

@@ -79,4 +79,12 @@
         name: k8s_nfs
         tasks_from: provisioner.yml
 
+- name: Install monitoring stack (optional)
+  hosts: k8s_master
+  become: true
+  gather_facts: false
+  roles:
+    - role: k8s_prometheus
+      when: (k8s_enable_prometheus | default(false)) | bool
+
 

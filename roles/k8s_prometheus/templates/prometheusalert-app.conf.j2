@@ -1,0 +1,57 @@
+# PrometheusAlert app.conf (managed by Ansible)
+appname = PrometheusAlert
+login_user={{ prometheusalert_login_user }}
+login_password={{ prometheusalert_login_password }}
+httpaddr = "0.0.0.0"
+httpport = 8080
+runmode = prod
+proxy =
+copyrequestbody = true
+title=PrometheusAlert
+logourl=https://raw.githubusercontent.com/feiyu563/PrometheusAlert/master/doc/images/alert-center.png
+rlogourl=https://raw.githubusercontent.com/feiyu563/PrometheusAlert/master/doc/images/alert-center.png
+messagelevel=3
+phonecalllevel=4
+defaultphone=
+phonecallresolved=0
+logtype=console
+logpath=logs/prometheusalertcenter.log
+prometheus_cst_time=1
+db_driver=sqlite3
+AlertRecord=1
+RecordLive=1
+RecordLiveDay=7
+alert_to_es=0
+maxIdleConns=100
+open-hotreload=0
+
+open-dingding=0
+ddurl=
+dd_isatall=0
+open-dingding-secret=0
+
+open-weixin=0
+wxurl=
+
+open-feishu=1
+fsurl={{ prometheusalert_feishu_webhook_url }}
+wh_contenttype=application/json
+
+open-txdx=0
+open-txdh=0
+open-hwdx=0
+open-alydx=0
+open-alydh=0
+open-rlydh=0
+open-email=0
+open-7moordx=0
+open-7moordh=0
+open-tg=0
+open-workwechat=0
+open-baidudx=0
+open-ruliu=0
+open-bark=0
+open-voice=0
+open-feishuapp=0
+open-alertgroup=0
+open-kafka=0

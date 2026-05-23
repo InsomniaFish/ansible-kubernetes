@@ -1,0 +1,123 @@
+---
+# 抓包流程：
+# 1. 三节点异步启动 tshark（ens33 + tunl0）
+# 2. master01 执行 kubectl exec 从 network-tools Pod 发 curl
+# 3. 等待抓包完成，收集并展示结果
+
+- name: "Step1 - 所有节点异步启动 tshark"
+  hosts: k8s_cluster
+  gather_facts: false
+  tasks:
+    - name: 杀掉残留的 tshark
+      ansible.builtin.shell: pkill -9 tshark || true
+      changed_when: false
+
+    - name: "在 ens33 + tunl0 上抓与 NodePort/Pod 相关的包 (30s)"
+      ansible.builtin.shell: |
+        tshark -i ens33 -i tunl0 \
+          -f "port 30066 or host 172.16.140.85 or host 172.16.196.149 or host 172.16.196.150" \
+          -a duration:30 \
+          -T fields \
+          -e frame.number \
+          -e frame.time_relative \
+          -e ip.src \
+          -e ip.dst \
+          -e tcp.srcport \
+          -e tcp.dstport \
+          -e tcp.flags.str \
+          -e frame.len \
+          -e _ws.col.Info \
+          -E header=y \
+          -E separator='|' \
+          2>/dev/null > /tmp/tshark_{{ inventory_hostname }}.txt
+      async: 35
+      poll: 0
+      register: tshark_job
+
+    - name: 保存 tshark job id
+      ansible.builtin.set_fact:
+        tshark_job_id: "{{ tshark_job.ansible_job_id }}"
+
+
+- name: "Step2 - 等待 tshark 就绪后从 Pod 内发起访问"
+  hosts: k8s_master
+  gather_facts: false
+  tasks:
+    - name: 等待 tshark 启动(2s)
+      ansible.builtin.pause:
+        seconds: 2
+
+    - name: "从 network-tools Pod 循环访问 myweb-nodeport 10次"
+      ansible.builtin.shell: |
+        kubectl exec -n default network-tools -- sh -c '
+          for i in $(seq 1 10); do
+            curl -s -o /dev/null -w "请求%d: HTTP %{http_code} -> %{remote_ip}:%{remote_port}\n" \
+              http://10.103.29.129:80
+            sleep 0.5
+          done
+        '
+      register: curl_result
+      changed_when: false
+
+    - name: 展示 curl 访问结果
+      ansible.builtin.debug:
+        msg: "{{ curl_result.stdout_lines }}"
+
+
+- name: "Step3 - 等待抓包完成并收集结果"
+  hosts: k8s_cluster
+  gather_facts: false
+  tasks:
+    - name: 等待 tshark 结束(28s)
+      ansible.builtin.async_status:
+        jid: "{{ tshark_job_id }}"
+      register: job_result
+      until: job_result.finished
+      retries: 30
+      delay: 2
+      ignore_errors: true
+
+    - name: 读取抓包文件
+      ansible.builtin.slurp:
+        src: /tmp/tshark_{{ inventory_hostname }}.txt
+      register: cap_raw
+
+    - name: "【{{ inventory_hostname }}】抓包原始数据"
+      ansible.builtin.debug:
+        msg: "{{ (cap_raw.content | b64decode).split('\n') | select('match', '.+') | list }}"
+
+
+- name: "Step4 - 分析数据包传输路径"
+  hosts: k8s_master
+  gather_facts: false
+  tasks:
+    - name: 数据包传输路径说明
+      ansible.builtin.debug:
+        msg:
+          - "============================================================"
+          - "  NodePort 访问路径分析（IPVS 模式 + Calico IPIP）"
+          - "============================================================"
+          - ""
+          - "【发起方】network-tools Pod (node02, 172.16.140.86)"
+          - "  ↓ curl http://10.103.29.129:80  (ClusterIP)"
+          - ""
+          - "【node02 内核 - IPVS 介入】"
+          - "  ├─ IPVS 查虚拟服务表 10.103.29.129:80 → rr 选后端"
+          - "  ├─ DNAT：目标 → 后端 PodIP:80 (172.16.140.85 or 172.16.196.14x)"
+          - "  └─ MASQUERADE(SNAT)：源 → 172.16.140.64 (node02 tunl0 IP)"
+          - ""
+          - "【情形A：后端 Pod 在 node02 (172.16.140.85)】"
+          - "  node02 → cali* veth → Pod  (本机转发，ens33 上不可见)"
+          - ""
+          - "【情形B：后端 Pod 在 node01 (172.16.196.14x)】"
+          - "  node02 ens33 → IPIP封装 → node01 ens33 tunl0 → 解封装"
+          - "  → cali* veth → Pod"
+          - "  (ens33 上可见 IPIP 外层包，tunl0 上可见内层 TCP 包)"
+          - ""
+          - "【Pod 响应返回】"
+          - "  Pod → (反向 IPIP/本机路由) → node02 tunl0/ens33"
+          - "  → IPVS conntrack 反向 DNAT → network-tools Pod"
+          - "============================================================"
+          - "  查看各节点抓包：/tmp/tshark_<节点名>.txt"
+          - "============================================================"
+

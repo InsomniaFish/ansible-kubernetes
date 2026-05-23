@@ -1,0 +1,215 @@
+---
+# 演示 Calico IPIP 模式下 Pod 跨节点通信
+# 使用 network-tools-2-f5w5n 和 network-tools-2-zp6zj 两个 Pod
+# 在源节点、目的节点和 tunl0 接口上同时抓包
+
+- name: "Step1 - 所有节点启动 tshark 抓包"
+  hosts: k8s_cluster
+  gather_facts: false
+  tasks:
+    - name: 杀掉残留的 tshark
+      ansible.builtin.shell: pkill -9 tshark || true
+      changed_when: false
+
+    - name: "在 ens33 + tunl0 上抓包 (40s)"
+      ansible.builtin.shell: |
+        tshark -i ens33 -i tunl0 \
+          -f "host 172.16.196.180 or host 172.16.140.81" \
+          -a duration:40 \
+          -T fields \
+          -e frame.number \
+          -e frame.time_relative \
+          -e frame.interface_name \
+          -e ip.src \
+          -e ip.dst \
+          -e ip.proto \
+          -e tcp.srcport \
+          -e tcp.dstport \
+          -e tcp.flags.str \
+          -e tcp.seq \
+          -e tcp.ack \
+          -e frame.len \
+          -e _ws.col.Info \
+          -E header=y \
+          -E separator='|' \
+          2>/dev/null > /tmp/tshark_{{ inventory_hostname }}_ipip.txt
+      async: 45
+      poll: 0
+      register: tshark_job
+
+    - name: 保存 tshark job id
+      ansible.builtin.set_fact:
+        tshark_job_id: "{{ tshark_job.ansible_job_id }}"
+
+
+- name: "Step2 - 等待 tshark 就绪后从 Pod 发起 ping 测试"
+  hosts: k8s_master
+  gather_facts: false
+  tasks:
+    - name: 等待 tshark 启动 (3s)
+      ansible.builtin.pause:
+        seconds: 3
+
+    - name: 获取 Pod 所在节点信息
+      ansible.builtin.shell: |
+        echo "=== Pod 分布情况 ==="
+        kubectl get pod -l app=network-tools-2 -o wide
+        echo ""
+        echo "=== network-tools-2-f5w5n 详细信息 ==="
+        kubectl get pod network-tools-2-f5w5n -o wide
+        echo ""
+        echo "=== network-tools-2-zp6zj 详细信息 ==="
+        kubectl get pod network-tools-2-zp6zj -o wide
+      register: pod_info
+      changed_when: false
+
+    - name: 展示 Pod 分布
+      ansible.builtin.debug:
+        msg: "{{ pod_info.stdout_lines }}"
+
+    - name: "从 network-tools-2-f5w5n ping network-tools-2-zp6zj"
+      ansible.builtin.shell: |
+        kubectl exec -n default network-tools-2-f5w5n -- sh -c '
+          echo "=== 开始 Ping 测试 ==="
+          echo "目标：network-tools-2-zp6zj (172.16.140.81)"
+          for i in $(seq 1 5); do
+            ping -c 1 -W 1 172.16.140.81 2>&1 | grep -E "bytes from|rtt"
+            sleep 1
+          done
+          echo ""
+          echo "=== Ping 测试完成 ==="
+        '
+      register: ping_result
+      changed_when: false
+
+    - name: 展示 Ping 结果
+      ansible.builtin.debug:
+        msg: "{{ ping_result.stdout_lines }}"
+
+    - name: "从 network-tools-2-f5w5n traceroute 到 network-tools-2-zp6zj"
+      ansible.builtin.shell: |
+        kubectl exec -n default network-tools-2-f5w5n -- sh -c '
+          echo "=== Traceroute 路径分析 ==="
+          traceroute -n -w 1 -m 10 172.16.140.81 2>&1 || echo "traceroute 不可用"
+        '
+      register: trace_result
+      changed_when: false
+
+    - name: 展示 Traceroute 结果
+      ansible.builtin.debug:
+        msg: "{{ trace_result.stdout_lines }}"
+
+
+- name: "Step3 - 等待抓包完成并收集结果"
+  hosts: k8s_cluster
+  gather_facts: false
+  tasks:
+    - name: 等待 tshark 结束 (38s)
+      ansible.builtin.async_status:
+        jid: "{{ tshark_job_id }}"
+      register: job_result
+      until: job_result.finished
+      retries: 40
+      delay: 2
+      ignore_errors: true
+
+    - name: 读取抓包文件
+      ansible.builtin.slurp:
+        src: /tmp/tshark_{{ inventory_hostname }}_ipip.txt
+      register: cap_raw
+      ignore_errors: true
+
+    - name: "【{{ inventory_hostname }}】抓包数据统计"
+      ansible.builtin.debug:
+        msg: |
+          ================================================
+          节点：{{ inventory_hostname }}
+          抓包文件：/tmp/tshark_{{ inventory_hostname }}_ipip.txt
+          数据包数量：{{ (cap_raw.content | default('') | b64decode | split('\n') | select('match', '.+') | list | length) }}
+          ================================================
+      ignore_errors: true
+
+
+- name: "Step4 - 导出详细抓包数据"
+  hosts: k8s_cluster
+  gather_facts: false
+  tasks:
+    - name: 读取并展示 ens33 接口的包
+      ansible.builtin.shell: |
+        echo "=== {{ inventory_hostname }} - ens33 接口抓包 ==="
+        cat /tmp/tshark_{{ inventory_hostname }}_ipip.txt | grep -E "ens33|^[0-9]" | head -50
+      register: ens33_capture
+      changed_when: false
+      ignore_errors: true
+
+    - name: 展示 ens33 抓包摘要
+      ansible.builtin.debug:
+        msg: "{{ ens33_capture.stdout_lines[:30] }}"
+      ignore_errors: true
+
+    - name: 读取并展示 tunl0 接口的包
+      ansible.builtin.shell: |
+        echo "=== {{ inventory_hostname }} - tunl0 接口抓包 (IPIP 解封装后) ==="
+        cat /tmp/tshark_{{ inventory_hostname }}_ipip.txt | grep -E "tunl0" | head -50
+      register: tunl0_capture
+      changed_when: false
+      ignore_errors: true
+
+    - name: 展示 tunl0 抓包摘要
+      ansible.builtin.debug:
+        msg: "{{ tunl0_capture.stdout_lines[:30] }}"
+      ignore_errors: true
+
+
+- name: "Step5 - IPIP 模式分析总结"
+  hosts: k8s_master
+  gather_facts: false
+  tasks:
+    - name: IPIP 模式传输路径说明
+      ansible.builtin.debug:
+        msg:
+          - ""
+          - "============================================================"
+          - "  Calico IPIP 模式下 Pod 跨节点通信分析"
+          - "============================================================"
+          - ""
+          - "【测试场景】"
+          - "  源 Pod: network-tools-2-f5w5n (172.16.196.180 @ node01)"
+          - "  目标 Pod: network-tools-2-zp6zj (172.16.140.81 @ node02)"
+          - ""
+          - "【数据传输路径】"
+          - ""
+          - "  1️⃣  源 Pod (172.16.196.180) 发出 ICMP 请求"
+          - "      ↓ 通过 cali* veth pair"
+          - ""
+          - "  2️⃣  node01 路由查表 (172.16.140.81/32 → tunl0)"
+          - "      ↓ IPIP 封装"
+          - "      外层 IP: 192.168.48.101 (node01) → 192.168.48.102 (node02)"
+          - "      内层 IP: 172.16.196.180 → 172.16.140.81"
+          - "      协议：IP-in-IP (Protocol 4)"
+          - ""
+          - "  3️⃣  物理网络传输 (ens33 可见 IPIP 外层包)"
+          - "      node01 ens33 → 交换机 → node02 ens33"
+          - ""
+          - "  4️⃣  node02 tunl0 接收并解封装"
+          - "      ↓ 移除 IPIP 外层头部"
+          - "      露出原始 ICMP 包"
+          - ""
+          - "  5️⃣  node02 路由查表 (172.16.140.81 → cali*)"
+          - "      ↓ 通过 cali* veth pair"
+          - ""
+          - "  6️⃣  目标 Pod (172.16.140.81) 接收并响应"
+          - ""
+          - "  7️⃣  响应包按相反路径返回"
+          - ""
+          - "【抓包分析要点】"
+          - "  • node01 ens33：可见 IPIP 封装包 (Protocol 4)"
+          - "  • node01 tunl0：可见封装前的原始 ICMP 包"
+          - "  • node02 ens33：可见 IPIP 封装包 (Protocol 4)"
+          - "  • node02 tunl0：可见解封装后的原始 ICMP 包"
+          - "  • 如果两 Pod 在同一节点：直接 cali* 转发，不经过 tunl0/ens33"
+          - ""
+          - "【查看完整抓包数据】"
+          - "  各节点文件：/tmp/tshark_<节点名>_ipip.txt"
+          - "============================================================"
+          - ""

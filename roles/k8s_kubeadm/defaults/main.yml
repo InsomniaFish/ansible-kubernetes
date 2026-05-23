@@ -10,7 +10,7 @@ kubeadm_advertise_address: ""
 kubeadm_bind_port: 6443
 kubeadm_node_name: ""
 kubeadm_cluster_name: "kubernetes"
-kubeadm_kubernetes_version: "1.32.11"
+kubeadm_kubernetes_version: "1.34.8"
 kubeadm_image_repository: "registry.aliyuncs.com/google_containers"
 kubeadm_dns_domain: "cluster.local"
 kubeadm_service_subnet: "10.96.0.0/12"

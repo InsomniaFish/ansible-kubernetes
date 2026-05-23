@@ -34,13 +34,14 @@
     repo: "deb [arch={{ k8s_apt_arch }} signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://mirrors.aliyun.com/kubernetes-new/core/stable/{{ k8s_version_channel }}/deb/ /"
     filename: kubernetes
     state: present
+    update_cache: true
 
 - name: Compute Kubernetes major.minor string
   ansible.builtin.set_fact:
     k8s_major_minor: "{{ k8s_version_channel | regex_replace('^v', '') }}"
 
 - name: Discover Kubernetes deb version to install
-  ansible.builtin.shell: "set -o pipefail && apt-cache madison kubeadm | awk '{print $3}' | grep -E '^{{ k8s_major_minor }}\\.' | head -1"
+  ansible.builtin.shell: "set -o pipefail && apt-cache madison kubeadm | awk '{print $3}' | grep -E '^{{ k8s_major_minor }}\\.' | sort -V | tail -1 || true"
   args:
     executable: /bin/bash
   register: k8s_deb_version_cmd

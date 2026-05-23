@@ -1,0 +1,56 @@
+---
+- name: Render monitoring stack manifest
+  ansible.builtin.template:
+    src: monitoring-stack.yaml.j2
+    dest: /root/monitoring-stack.yaml
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Apply monitoring stack manifest
+  when: not ansible_check_mode
+  ansible.builtin.command: "kubectl --kubeconfig /etc/kubernetes/admin.conf apply -f /root/monitoring-stack.yaml --validate=false"
+  register: monitoring_apply
+  changed_when: "'created' in monitoring_apply.stdout or 'configured' in monitoring_apply.stdout"
+
+- name: Restart Prometheus to reload config
+  when: not ansible_check_mode
+  ansible.builtin.command: "kubectl --kubeconfig /etc/kubernetes/admin.conf -n {{ monitoring_namespace }} rollout restart deploy/{{ prometheus_name }}"
+  changed_when: false
+
+- name: Restart Alertmanager to reload config
+  when: not ansible_check_mode
+  ansible.builtin.command: "kubectl --kubeconfig /etc/kubernetes/admin.conf -n {{ monitoring_namespace }} rollout restart deploy/{{ alertmanager_name }}"
+  changed_when: false
+
+- name: Wait for Prometheus deployment rollout
+  when: not ansible_check_mode
+  ansible.builtin.command: "kubectl --kubeconfig /etc/kubernetes/admin.conf -n {{ monitoring_namespace }} rollout status deploy/{{ prometheus_name }} --timeout=300s"
+  changed_when: false
+
+- name: Wait for Alertmanager deployment rollout
+  when: not ansible_check_mode
+  ansible.builtin.command: "kubectl --kubeconfig /etc/kubernetes/admin.conf -n {{ monitoring_namespace }} rollout status deploy/{{ alertmanager_name }} --timeout=300s"
+  changed_when: false
+
+- name: Wait for Grafana deployment rollout
+  when: not ansible_check_mode
+  ansible.builtin.command: "kubectl --kubeconfig /etc/kubernetes/admin.conf -n {{ monitoring_namespace }} rollout status deploy/{{ grafana_name }} --timeout=300s"
+  changed_when: false
+
+- name: Wait for PrometheusAlert deployment rollout
+  when:
+    - not ansible_check_mode
+    - prometheusalert_enable | bool
+  ansible.builtin.command: "kubectl --kubeconfig /etc/kubernetes/admin.conf -n {{ monitoring_namespace }} rollout status deploy/{{ prometheusalert_name }} --timeout=300s"
+  changed_when: false
+
+- name: Wait for kube-state-metrics deployment rollout
+  when: not ansible_check_mode
+  ansible.builtin.command: "kubectl --kubeconfig /etc/kubernetes/admin.conf -n {{ monitoring_namespace }} rollout status deploy/{{ kube_state_metrics_name }} --timeout=300s"
+  changed_when: false
+
+- name: Wait for node-exporter daemonset rollout
+  when: not ansible_check_mode
+  ansible.builtin.command: "kubectl --kubeconfig /etc/kubernetes/admin.conf -n {{ monitoring_namespace }} rollout status ds/{{ node_exporter_name }} --timeout=300s"
+  changed_when: false
