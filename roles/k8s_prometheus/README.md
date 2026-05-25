@@ -81,7 +81,7 @@ curl -X POST 'http://<节点IP>:30080/prometheusalert?type=fs&tpl=prometheus-fs'
 
 ```bash
 # 在 master 上执行（ClusterIP 服务）
-curl -X POST 'http://alertmanager.monitoring.svc.cluster.local:9093/api/v2/alerts' \
+curl -X POST "http://$(kubectl get svc alertmanager -n monitoring -o jsonpath='{.spec.clusterIP}'):9093/api/v2/alerts" \
   -H 'Content-Type: application/json' \
   -d '[
     {
@@ -96,7 +96,7 @@ curl -X POST 'http://alertmanager.monitoring.svc.cluster.local:9093/api/v2/alert
 查看 Alertmanager 当前告警：
 
 ```bash
-curl -s 'http://alertmanager.monitoring.svc.cluster.local:9093/api/v2/alerts' | python3 -m json.tool
+curl -s "http://$(kubectl get svc alertmanager -n monitoring -o jsonpath='{.spec.clusterIP}'):9093/api/v2/alerts" | python3 -m json.tool
 ```
 
 ### 4. 查看链路日志
@@ -105,9 +105,19 @@ curl -s 'http://alertmanager.monitoring.svc.cluster.local:9093/api/v2/alerts' | 
 kubectl -n monitoring logs deploy/alertmanager --tail=50
 kubectl -n monitoring logs deploy/prometheus-alert --tail=50
 curl -s 'http://<节点IP>:30090/api/v1/alerts'
+curl -s 'http://<节点IP>:30090/api/v1/rules' | python3 -m json.tool | head -40
 ```
 
-> Prometheus 规则触发端到端需先在 `prometheus.yml` 配置告警规则；链路验证用步骤 3 即可覆盖 Alertmanager → PrometheusAlert → 飞书。
+### 5. Pod 异常告警（端到端）
+
+```bash
+# 创建测试 Pod 并删 Pod 模拟异常（CrashLoopBackOff 会触发 KubePodCrashLooping）
+kubectl run alert-test --image=busybox --restart=Always -- sh -c 'exit 1'
+# 等待 5~10 分钟后查看
+curl -s 'http://<节点IP>:30090/api/v1/alerts'
+kubectl -n monitoring logs deploy/prometheus-alert --tail=20
+kubectl delete pod alert-test --force --grace-period=0
+```
 
 ## 关键变量
 
@@ -119,6 +129,21 @@ curl -s 'http://<节点IP>:30090/api/v1/alerts'
 | `prometheus_node_port` | `30090` | Prometheus NodePort |
 | `grafana_node_port` | `30030` | Grafana NodePort |
 | `prometheusalert_node_port` | `30080` | PrometheusAlert NodePort |
+| `prometheus_alert_rules_enable` | `true` | 启用 K8s 告警规则 |
+| `prometheus_alert_keyword_prefix` | `告警：` | 告警摘要前缀（适配飞书关键词） |
+
+## 内置告警规则
+
+| 告警 | 触发条件 |
+|---|---|
+| KubePodCrashLooping | 容器 CrashLoopBackOff 持续 5m |
+| KubePodNotReady | Pod Failed/Unknown 持续 5m |
+| KubePodPending | Pod Pending 超过 10m |
+| KubeDeploymentReplicasMismatch | Deployment 副本不可用 10m |
+| KubeNodeNotReady | 节点 NotReady 5m |
+| KubeNodeMemoryPressure | 节点内存压力 5m |
+| KubeNodeDiskPressure | 节点磁盘压力 5m |
+| NodeFilesystemSpaceFillingUp | 节点磁盘使用率 > 90% |
 
 ## 使用方式
 

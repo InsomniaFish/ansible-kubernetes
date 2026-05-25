@@ -58,6 +58,7 @@ data:
 {% else %}
       receiver: default
 {% endif %}
+      group_by: ['alertname', 'namespace', 'pod']
       group_wait: 30s
       group_interval: 5m
       repeat_interval: 12h
@@ -88,7 +89,12 @@ data:
             - targets:
                 - {{ alertmanager_name }}:9093
 
+{% if prometheus_alert_rules_enable | bool %}
+    rule_files:
+      - /etc/prometheus/kubernetes-alerts.yml
+{% else %}
     rule_files: []
+{% endif %}
 
     scrape_configs:
       - job_name: prometheus
@@ -188,6 +194,10 @@ data:
           - source_labels: [__meta_kubernetes_pod_name]
             action: replace
             target_label: kubernetes_pod_name
+{% if prometheus_alert_rules_enable | bool %}
+  kubernetes-alerts.yml: |
+{{ lookup('template', 'prometheus-kubernetes-alerts.yml.j2') | indent(4, true) }}
+{% endif %}
 ---
 apiVersion: v1
 kind: Secret
@@ -721,6 +731,8 @@ data:
 {{ lookup('template', 'prometheusalert-app.conf.j2') | indent(4, true) }}
   user.csv: |
     日期,号码,姓名,备用号码1,备用联系人1,备用号码2,备用联系人2
+  prometheus-fs.tpl: |
+{{ lookup('file', 'prometheusalert-feishu.tpl') | indent(4, true) }}
 ---
 apiVersion: v1
 kind: Service
@@ -779,6 +791,20 @@ spec:
               port: http
             initialDelaySeconds: 10
             periodSeconds: 10
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - |
+                    for i in $(seq 1 60); do
+                      [ -f /app/db/PrometheusAlertDB.db ] && break
+                      sleep 1
+                    done
+                    if [ -f /app/db/PrometheusAlertDB.db ]; then
+                      sqlite3 /app/db/PrometheusAlertDB.db "UPDATE prometheus_alert_d_b SET tpl=readfile('/app/tpl/prometheus-fs.tpl') WHERE tplname='{{ prometheusalert_feishu_tpl_name }}';"
+                    fi
           livenessProbe:
             httpGet:
               path: /
@@ -799,6 +825,9 @@ spec:
             - name: config
               mountPath: /app/user.csv
               subPath: user.csv
+            - name: config
+              mountPath: /app/tpl/prometheus-fs.tpl
+              subPath: prometheus-fs.tpl
             - name: data
               mountPath: /app/db
       volumes:
@@ -810,6 +839,8 @@ spec:
                 path: app.conf
               - key: user.csv
                 path: user.csv
+              - key: prometheus-fs.tpl
+                path: prometheus-fs.tpl
         - name: data
           emptyDir: {}
 {% endif %}

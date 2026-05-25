@@ -45,6 +45,29 @@
   ansible.builtin.command: "kubectl --kubeconfig /etc/kubernetes/admin.conf -n {{ monitoring_namespace }} rollout status deploy/{{ prometheusalert_name }} --timeout=300s"
   changed_when: false
 
+- name: Copy PrometheusAlert feishu template file
+  when:
+    - not ansible_check_mode
+    - prometheusalert_enable | bool
+  ansible.builtin.copy:
+    src: prometheusalert-feishu.tpl
+    dest: /root/prometheusalert-feishu.tpl
+    mode: "0644"
+
+- name: Install fixed PrometheusAlert feishu template
+  when:
+    - not ansible_check_mode
+    - prometheusalert_enable | bool
+  ansible.builtin.shell: |
+    set -euo pipefail
+    POD="$(kubectl --kubeconfig /etc/kubernetes/admin.conf -n {{ monitoring_namespace }} get pod -l app={{ prometheusalert_name }} -o jsonpath='{.items[0].metadata.name}')"
+    kubectl --kubeconfig /etc/kubernetes/admin.conf -n {{ monitoring_namespace }} cp /root/prometheusalert-feishu.tpl "${POD}:/tmp/prometheus-fs.tpl"
+    kubectl --kubeconfig /etc/kubernetes/admin.conf -n {{ monitoring_namespace }} exec "${POD}" -- \
+      sqlite3 /app/db/PrometheusAlertDB.db "UPDATE prometheus_alert_d_b SET tpl=readfile('/tmp/prometheus-fs.tpl') WHERE tplname='{{ prometheusalert_feishu_tpl_name }}';"
+  args:
+    executable: /bin/bash
+  changed_when: true
+
 - name: Wait for kube-state-metrics deployment rollout
   when: not ansible_check_mode
   ansible.builtin.command: "kubectl --kubeconfig /etc/kubernetes/admin.conf -n {{ monitoring_namespace }} rollout status deploy/{{ kube_state_metrics_name }} --timeout=300s"

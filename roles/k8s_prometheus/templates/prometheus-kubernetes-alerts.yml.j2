@@ -1,0 +1,103 @@
+groups:
+  - name: kubernetes-alerts
+    rules:
+      - alert: KubePodCrashLooping
+        expr: |
+          (
+            max_over_time(kube_pod_container_status_waiting_reason{reason="CrashLoopBackOff"}[5m]) >= 1
+          )
+          * on(namespace, pod) group_left(node) kube_pod_info
+        for: 1m
+        labels:
+          severity: warning
+          level: warning
+        annotations:
+          summary: "{{ prometheus_alert_keyword_prefix }}{% raw %}{{ $labels.namespace }}/{{ $labels.pod }} 容器 CrashLoopBackOff{% endraw %}"
+          description: "{% raw %}容器 {{ $labels.container }} 持续重启{% endraw %}"
+
+      - alert: KubePodNotReady
+        expr: |
+          (
+            kube_pod_status_phase{phase=~"Failed|Unknown"} == 1
+          )
+          * on(namespace, pod) group_left(node) kube_pod_info
+        for: 1m
+        labels:
+          severity: warning
+          level: warning
+        annotations:
+          summary: "{{ prometheus_alert_keyword_prefix }}{% raw %}{{ $labels.namespace }}/{{ $labels.pod }} 状态异常{% endraw %}"
+          description: "{% raw %}Pod 处于 {{ $labels.phase }} 状态{% endraw %}"
+
+      - alert: KubePodPending
+        expr: |
+          (
+            kube_pod_status_phase{phase="Pending"} == 1
+          )
+          * on(namespace, pod) group_left(node) kube_pod_info
+        for: 10m
+        labels:
+          severity: warning
+          level: warning
+        annotations:
+          summary: "{{ prometheus_alert_keyword_prefix }}{% raw %}{{ $labels.namespace }}/{{ $labels.pod }} 长时间 Pending{% endraw %}"
+          description: Pod 超过 10 分钟仍处于 Pending
+
+      - alert: KubeDeploymentReplicasMismatch
+        expr: |
+          kube_deployment_spec_replicas
+            != kube_deployment_status_replicas_available
+        for: 10m
+        labels:
+          severity: warning
+          level: warning
+        annotations:
+          summary: "{{ prometheus_alert_keyword_prefix }}{% raw %}Deployment {{ $labels.namespace }}/{{ $labels.deployment }} 副本数不匹配{% endraw %}"
+          description: "{% raw %}可用副本不足，当前值 {{ $value }}{% endraw %}"
+
+      - alert: KubeNodeNotReady
+        expr: kube_node_status_condition{condition="Ready",status="true"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          level: critical
+        annotations:
+          summary: "{{ prometheus_alert_keyword_prefix }}{% raw %}节点 {{ $labels.node }} NotReady{% endraw %}"
+          description: 节点 Ready 条件为 false
+
+      - alert: KubeNodeMemoryPressure
+        expr: kube_node_status_condition{condition="MemoryPressure",status="true"} == 1
+        for: 1m
+        labels:
+          severity: warning
+          level: warning
+        annotations:
+          summary: "{{ prometheus_alert_keyword_prefix }}{% raw %}节点 {{ $labels.node }} 内存压力{% endraw %}"
+          description: 节点处于 MemoryPressure 状态
+
+      - alert: KubeNodeDiskPressure
+        expr: kube_node_status_condition{condition="DiskPressure",status="true"} == 1
+        for: 1m
+        labels:
+          severity: warning
+          level: warning
+        annotations:
+          summary: "{{ prometheus_alert_keyword_prefix }}{% raw %}节点 {{ $labels.node }} 磁盘压力{% endraw %}"
+          description: 节点处于 DiskPressure 状态
+
+      - alert: NodeFilesystemSpaceFillingUp
+        expr: |
+          (
+            (
+              node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs"}
+              / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs"}
+            ) < 0.1
+          )
+          * on(instance) group_left(nodename) node_uname_info
+        for: 1m
+        labels:
+          severity: warning
+          level: warning
+        annotations:
+          summary: "{{ prometheus_alert_keyword_prefix }}{% raw %}节点 {{ $labels.nodename }} 磁盘使用率 > 90%{% endraw %}"
+          description: "{% raw %}挂载点 {{ $labels.mountpoint }} 剩余空间不足 10%{% endraw %}"

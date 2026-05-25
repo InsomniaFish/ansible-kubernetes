@@ -54,7 +54,11 @@ prometheusalert_login_password: "prometheusalert"
 prometheusalert_feishu_webhook_url: ""
 prometheusalert_alert_type: "fs"
 prometheusalert_alert_tpl: "prometheus-fs"
+prometheusalert_feishu_tpl_name: "prometheus-fs"
 prometheusalert_webhook_url: "http://{{ prometheusalert_name }}:8080/prometheusalert?type={{ prometheusalert_alert_type }}&tpl={{ prometheusalert_alert_tpl }}"
+
+prometheus_alert_rules_enable: true
+prometheus_alert_keyword_prefix: "告警："
 
 # Backward compatible alias
 prometheus_namespace: "{{ monitoring_namespace }}"
