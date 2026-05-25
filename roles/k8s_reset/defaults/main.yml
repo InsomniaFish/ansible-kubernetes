@@ -3,10 +3,32 @@
 k8s_reset_stop_containerd: true
 k8s_reset_stop_docker: true
 k8s_reset_stop_cri_docker: true
+k8s_reset_remove_containers: true
+k8s_reset_kill_orphan_processes: true
 k8s_reset_remove_cni: true
 k8s_reset_remove_k8s_data: true
 k8s_reset_remove_kubeconfig: true
 k8s_reset_flush_iptables: false
 k8s_reset_flush_ipvs: false
 
+k8s_reset_cri_sockets:
+  - unix:///var/run/cri-dockerd.sock
+  - unix:///run/containerd/containerd.sock
 
+k8s_reset_orphan_process_patterns:
+  - kube-apiserver
+  - kube-controller-manager
+  - kube-scheduler
+  - kube-proxy
+  - etcd
+  - calico-node
+  - "runsv bird"
+  - "runsv bird6"
+  - "/bird "
+  - bird6
+
+k8s_reset_runtime_paths:
+  - /var/run/calico
+  - /run/calico
+  - /var/run/kubernetes
+  - /var/lib/kubelet/device-plugins

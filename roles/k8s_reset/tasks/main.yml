@@ -6,10 +6,65 @@
     state: stopped
   failed_when: false
 
-- name: Stop containerd (optional)
-  when: (k8s_reset_stop_containerd | bool) and not ansible_check_mode
+- name: Remove static pod manifests (prevent control-plane respawn)
+  when: not ansible_check_mode
+  ansible.builtin.file:
+    path: /etc/kubernetes/manifests
+    state: absent
+  failed_when: false
+
+- name: Stop and remove all runtime containers
+  when:
+    - not ansible_check_mode
+    - k8s_reset_remove_containers | bool
+  ansible.builtin.shell: |
+    set -uo pipefail
+    stopped=0
+    if command -v crictl >/dev/null 2>&1; then
+      for sock in {{ k8s_reset_cri_sockets | map('quote') | join(' ') }}; do
+        ids="$(crictl --runtime-endpoint "${sock}" ps -aq 2>/dev/null || true)"
+        if [ -n "${ids}" ]; then
+          crictl --runtime-endpoint "${sock}" stop ${ids} 2>/dev/null || true
+          crictl --runtime-endpoint "${sock}" rm -f ${ids} 2>/dev/null || true
+          stopped=1
+        fi
+      done
+    fi
+    if command -v docker >/dev/null 2>&1; then
+      ids="$(docker ps -aq 2>/dev/null || true)"
+      if [ -n "${ids}" ]; then
+        docker stop -t 5 ${ids} 2>/dev/null || true
+        docker rm -f ${ids} 2>/dev/null || true
+        stopped=1
+      fi
+    fi
+    exit 0
+  args:
+    executable: /bin/bash
+  changed_when: false
+  failed_when: false
+
+- name: Kill leftover Kubernetes and CNI processes
+  when:
+    - not ansible_check_mode
+    - k8s_reset_kill_orphan_processes | bool
+  ansible.builtin.shell: |
+    set -uo pipefail
+    {% for pattern in k8s_reset_orphan_process_patterns %}
+    pkill -9 -f {{ pattern | quote }} 2>/dev/null || true
+    {% endfor %}
+    pkill -9 kubelet 2>/dev/null || true
+    fuser -k 9099/tcp 179/tcp 6443/tcp 10250/tcp 10257/tcp 10259/tcp 2380/tcp 2379/tcp 2>/dev/null || true
+    exit 0
+  args:
+    executable: /bin/bash
+  changed_when: false
+  failed_when: false
+
+- name: Stop cri-docker (optional)
+  when: (k8s_reset_stop_cri_docker | bool) and not ansible_check_mode
   ansible.builtin.systemd:
-    name: containerd
+    name: cri-docker
     state: stopped
   failed_when: false
 
@@ -20,26 +75,11 @@
     state: stopped
   failed_when: false
 
-- name: Stop cri-docker (optional)
-  when: (k8s_reset_stop_cri_docker | bool) and not ansible_check_mode
+- name: Stop containerd (optional)
+  when: (k8s_reset_stop_containerd | bool) and not ansible_check_mode
   ansible.builtin.systemd:
-    name: cri-docker
+    name: containerd
     state: stopped
-  failed_when: false
-
-- name: Kill leftover kube-apiserver (if any)
-  when: not ansible_check_mode
-  ansible.builtin.shell: "pkill -f kube-apiserver || true"
-  args:
-    executable: /bin/bash
-  changed_when: false
-  failed_when: false
-
-- name: Remove static pod manifests (if any)
-  when: not ansible_check_mode
-  ansible.builtin.file:
-    path: /etc/kubernetes/manifests
-    state: absent
   failed_when: false
 
 - name: Run kubeadm reset
@@ -58,6 +98,23 @@
     - /var/lib/cni
     - /var/lib/calico
     - /var/lib/flannel
+
+- name: Remove Calico and kubelet runtime state (optional)
+  when: (k8s_reset_remove_cni | bool) and not ansible_check_mode
+  ansible.builtin.shell: |
+    set -uo pipefail
+    p="{{ item }}"
+    [ -e "${p}" ] || exit 0
+    find "${p}" -xdev -type d 2>/dev/null | sort -r | while read -r d; do
+      mountpoint -q "${d}" 2>/dev/null && umount -l "${d}" 2>/dev/null || true
+    done
+    rm -rf "${p}" 2>/dev/null || true
+    exit 0
+  args:
+    executable: /bin/bash
+  loop: "{{ k8s_reset_runtime_paths }}"
+  changed_when: false
+  failed_when: false
 
 - name: Remove Kubernetes data (optional)
   when: (k8s_reset_remove_k8s_data | bool) and not ansible_check_mode
@@ -91,5 +148,3 @@
   ansible.builtin.command: ipvsadm --clear
   changed_when: false
   failed_when: false
-
-
