@@ -83,6 +83,37 @@
   register: containerd_config_stat_after
   check_mode: false
 
+- name: Check containerd config has sandbox image setting
+  when: containerd_config_stat_after.stat.exists
+  ansible.builtin.command: grep -qE '^\s*(sandbox_image|sandbox)\s*=' /etc/containerd/config.toml
+  register: containerd_sandbox_configured
+  changed_when: false
+  failed_when: false
+
+- name: Regenerate containerd config when sandbox setting is missing
+  when:
+    - not ansible_check_mode
+    - containerd_config_stat_after.stat.exists
+    - containerd_sandbox_configured.rc != 0
+  ansible.builtin.command: containerd config default
+  register: containerd_config_regenerated
+  changed_when: containerd_config_regenerated.stdout | length > 0
+  failed_when: containerd_config_regenerated.rc != 0
+
+- name: Write regenerated containerd config
+  when:
+    - not ansible_check_mode
+    - containerd_config_stat_after.stat.exists
+    - containerd_sandbox_configured.rc != 0
+    - containerd_config_regenerated.stdout | length > 0
+  ansible.builtin.copy:
+    dest: /etc/containerd/config.toml
+    content: "{{ containerd_config_regenerated.stdout }}"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart containerd
+
 - name: Configure containerd to use systemd cgroups
   when: containerd_config_stat_after.stat.exists
   ansible.builtin.replace:
@@ -91,7 +122,15 @@
     replace: '\\1true'
   notify: restart containerd
 
-- name: Configure containerd pause image mirror
+- name: Configure containerd pause image mirror (containerd 2.x)
+  when: containerd_config_stat_after.stat.exists
+  ansible.builtin.replace:
+    path: /etc/containerd/config.toml
+    regexp: "(^\\s*sandbox\\s*=\\s*['\"]).*(['\"])"
+    replace: "\\1{{ containerd_pause_image }}\\2"
+  notify: restart containerd
+
+- name: Configure containerd pause image mirror (containerd 1.x)
   when: containerd_config_stat_after.stat.exists
   ansible.builtin.replace:
     path: /etc/containerd/config.toml
@@ -114,6 +153,9 @@
     insertafter: '^#\\s*Unless required'
     line: 'disabled_plugins = []'
   notify: restart containerd
+
+- name: Apply containerd config changes before start
+  ansible.builtin.meta: flush_handlers
 
 - name: Enable and start containerd
   ansible.builtin.systemd:

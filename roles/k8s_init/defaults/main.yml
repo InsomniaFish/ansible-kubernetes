@@ -101,7 +101,7 @@ containerd_packages:
   - containerd.io
 
 # Pause image used by containerd (matches cri-dockerd default)
-containerd_pause_image: "registry.cn-hangzhou.aliyuncs.com/google_containers/pause:3.10"
+containerd_pause_image: "registry.cn-hangzhou.aliyuncs.com/google_containers/pause:3.10.1"
 
 docker_packages:
   - docker-ce
@@ -117,7 +117,7 @@ k8s_apt_arch: "{{ 'amd64' if ansible_architecture in ['x86_64', 'amd64'] else an
 k8s_version_channel: "v1.34"
 
 cri_dockerd_deb_url: "https://github.com/Mirantis/cri-dockerd/releases/download/v0.3.24/cri-dockerd_0.3.24.3-0.ubuntu-{{ ansible_distribution_release }}_amd64.deb"
-cri_dockerd_pause_image: "registry.cn-hangzhou.aliyuncs.com/google_containers/pause:3.10"
+cri_dockerd_pause_image: "registry.cn-hangzhou.aliyuncs.com/google_containers/pause:3.10.1"
 
 # Local artifact (controller-side). Put the deb here to avoid downloading during runs:
 #   ./files/cri-dockerd.deb (relative to playbook_dir)

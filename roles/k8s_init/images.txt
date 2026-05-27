@@ -1,2 +1,2 @@
 # pause 镜像（docker/containerd 运行时）
-registry.cn-hangzhou.aliyuncs.com/google_containers/pause:3.10
+registry.cn-hangzhou.aliyuncs.com/google_containers/pause:3.10.1
