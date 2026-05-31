@@ -59,6 +59,8 @@ prometheusalert_webhook_url: "http://{{ prometheusalert_name }}:8080/prometheusa
 
 prometheus_alert_rules_enable: true
 prometheus_alert_keyword_prefix: "告警："
+# 留空则自动执行 kubectl config view --minify -o jsonpath='{.clusters[0].name}'
+prometheus_alert_cluster_name: ""
 
 # Backward compatible alias
 prometheus_namespace: "{{ monitoring_namespace }}"

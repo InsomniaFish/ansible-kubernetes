@@ -1,3 +1,41 @@
+# ansible-kubernetes
+
+基于 Ansible 的 Kubernetes 集群自动化部署项目，面向 Ubuntu 环境，支持一键完成节点初始化、控制面搭建、Worker 加入及可选组件安装。
+
+## 项目介绍
+
+本项目用 Ansible Playbook 将 K8s 集群部署流程标准化，适用于实验环境、内网离线/半离线场景及多节点/单节点集群搭建。无需手动逐台执行 `kubeadm init/join`，通过 inventory 定义节点角色后，一条命令即可完成整套部署。
+
+**核心能力：**
+
+| 能力 | 说明 |
+|------|------|
+| 集群生命周期 | 初始化 → 部署 → 清理重建（`k8s_reset`） |
+| 容器运行时 | 支持 `docker + cri-dockerd` 或 `containerd` |
+| 网络插件 | Calico / Flannel 二选一 |
+| 国内镜像 | K8s 控制面镜像默认走阿里云；pause 镜像可配置国内源 |
+| 可选组件 | NFS 动态存储、Harbor 私有仓库、Prometheus 监控栈、WireMCP 抓包分析 |
+| 飞书告警 | Prometheus → Alertmanager → PrometheusAlert → 飞书 Webhook |
+
+**典型架构：**
+
+```text
+[k8s_master]  ── kubeadm init + CNI + 可选监控/NFS
+[k8s_nodes]   ── kubeadm join
+[k8s_cluster] ── OS 初始化 + 容器运行时 + kubelet
+```
+
+**适用场景：**
+
+- 快速搭建 K8s 1.34.x 测试/开发集群
+- 单节点 All-in-One（master 兼 worker，需去污点或配置 toleration）
+- 国内网络环境（控制面镜像已配国内源；CNI/监控等建议离线导入）
+- 集群重建（`-e k8s_enable_reset=true` 强制清理残留进程与配置）
+
+**默认版本：** Kubernetes **v1.34.8**，kube-proxy 模式 **IPVS**。
+
+---
+
 ## 项目目录
 
 ```text

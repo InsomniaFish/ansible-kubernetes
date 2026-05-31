@@ -1,0 +1,16 @@
+{% raw %}{{ $var := .externalURL }}{{ range $k,$v:=.alerts }}{{ if eq $v.status "resolved" }}**Prometheus 恢复通知**
+{{ else }}**Prometheus 告警通知**
+{{ end }}{% endraw %}【告警集群】{{ prometheus_alert_cluster_name }}
+{% raw %}【告警名称】{{$v.labels.alertname}}
+【告警级别】{{ if $v.labels.severity }}{{$v.labels.severity }}{{ else if $v.labels.level }}{{$v.labels.level }}{{ else }}unknown{{ end }}
+【告警状态】{{$v.status}}
+【开始时间】{{ GetCSTtime $v.startsAt }}{{ if eq $v.status "resolved" }}
+【结束时间】{{ GetCSTtime $v.endsAt }}{{ end }}
+【命名空间】{{$v.labels.namespace}}
+【Pod 名称】{{$v.labels.pod}}
+【节点 IP】{{ if $v.labels.internal_ip }}{{$v.labels.internal_ip }}{{ else if $v.labels.instance }}{{ reReplaceAll ":.*$" "" $v.labels.instance }}{{ else }}{{ end }}
+【实例名称】{{ if $v.labels.node }}{{$v.labels.node }}{{ else if $v.labels.nodename }}{{$v.labels.nodename }}{{ else if $v.labels.kubernetes_node }}{{$v.labels.kubernetes_node }}{{ else }}{{ end }}
+【告警详情】{{$v.annotations.description}}
+LABELS = map[namespace:{{$v.labels.namespace}} pod:{{$v.labels.pod}}]; {{$v.annotations.summary}} (instance {{ if $v.labels.node }}{{$v.labels.node }}{{ else if $v.labels.nodename }}{{$v.labels.nodename }}{{ else if $v.labels.kubernetes_node }}{{$v.labels.kubernetes_node }}{{ else }}{{$v.labels.instance }}{{ end }})
+{{ end }}
+{% endraw %}

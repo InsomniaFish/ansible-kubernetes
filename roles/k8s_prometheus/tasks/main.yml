@@ -1,4 +1,24 @@
 ---
+- name: Read cluster name from kubectl config
+  when: not ansible_check_mode
+  ansible.builtin.command: kubectl config view --minify -o jsonpath='{.clusters[0].name}'
+  register: prometheus_k8s_cluster_name_from_kubectl
+  changed_when: false
+  failed_when: false
+
+- name: Set alert cluster name for templates
+  ansible.builtin.set_fact:
+    prometheus_alert_cluster_name: >-
+      {{
+        (prometheus_alert_cluster_name | default('') | trim)
+        if (prometheus_alert_cluster_name | default('') | trim) != ''
+        else (
+          (prometheus_k8s_cluster_name_from_kubectl.stdout | default('') | trim)
+          if (not ansible_check_mode and (prometheus_k8s_cluster_name_from_kubectl.stdout | default('') | trim) != '')
+          else 'kubernetes'
+        )
+      }}
+
 - name: Render monitoring stack manifest
   ansible.builtin.template:
     src: monitoring-stack.yaml.j2
@@ -45,12 +65,12 @@
   ansible.builtin.command: "kubectl --kubeconfig /etc/kubernetes/admin.conf -n {{ monitoring_namespace }} rollout status deploy/{{ prometheusalert_name }} --timeout=300s"
   changed_when: false
 
-- name: Copy PrometheusAlert feishu template file
+- name: Render PrometheusAlert feishu template file
   when:
     - not ansible_check_mode
     - prometheusalert_enable | bool
-  ansible.builtin.copy:
-    src: prometheusalert-feishu.tpl
+  ansible.builtin.template:
+    src: prometheusalert-feishu.tpl.j2
     dest: /root/prometheusalert-feishu.tpl
     mode: "0644"
 

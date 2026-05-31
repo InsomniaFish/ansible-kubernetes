@@ -732,7 +732,7 @@ data:
   user.csv: |
     日期,号码,姓名,备用号码1,备用联系人1,备用号码2,备用联系人2
   prometheus-fs.tpl: |
-{{ lookup('file', 'prometheusalert-feishu.tpl') | indent(4, true) }}
+{{ lookup('template', 'prometheusalert-feishu.tpl.j2') | indent(4, true) }}
 ---
 apiVersion: v1
 kind: Service
