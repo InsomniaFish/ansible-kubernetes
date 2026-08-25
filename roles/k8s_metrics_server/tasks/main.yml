@@ -1,0 +1,38 @@
+---
+- name: Render metrics-server manifest
+  ansible.builtin.template:
+    src: metrics-server.yaml.j2
+    dest: "{{ metrics_server_manifest_dest }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Apply metrics-server manifest
+  when: not ansible_check_mode
+  ansible.builtin.command: "kubectl --kubeconfig /etc/kubernetes/admin.conf apply -f {{ metrics_server_manifest_dest }}"
+  register: metrics_server_apply
+  changed_when: "'created' in metrics_server_apply.stdout or 'configured' in metrics_server_apply.stdout"
+
+- name: Wait for metrics-server deployment rollout
+  when: not ansible_check_mode
+  ansible.builtin.command: "kubectl --kubeconfig /etc/kubernetes/admin.conf -n {{ metrics_server_namespace }} rollout status deploy/{{ metrics_server_name }} --timeout=300s"
+  changed_when: false
+
+- name: Wait for metrics.k8s.io APIService to be available
+  when: not ansible_check_mode
+  ansible.builtin.command: "kubectl --kubeconfig /etc/kubernetes/admin.conf wait --for=condition=Available apiservice/v1beta1.metrics.k8s.io --timeout=120s"
+  changed_when: false
+
+- name: Verify kubectl top nodes works
+  when: not ansible_check_mode
+  ansible.builtin.command: "kubectl --kubeconfig /etc/kubernetes/admin.conf top nodes"
+  register: metrics_server_top_nodes
+  changed_when: false
+  retries: 12
+  delay: 10
+  until: metrics_server_top_nodes.rc == 0
+
+- name: Show kubectl top nodes result
+  when: not ansible_check_mode
+  ansible.builtin.debug:
+    msg: "{{ metrics_server_top_nodes.stdout_lines }}"

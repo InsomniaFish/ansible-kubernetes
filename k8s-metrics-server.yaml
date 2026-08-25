@@ -1,0 +1,7 @@
+---
+- name: Install metrics-server (kubectl top nodes/pods)
+  hosts: k8s_master
+  become: true
+  gather_facts: false
+  roles:
+    - k8s_metrics_server

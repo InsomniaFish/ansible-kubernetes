@@ -1,0 +1,27 @@
+---
+# 开关（在 k8s-cluster.yaml 中通过 k8s_enable_metrics_server=true 启用）
+k8s_enable_metrics_server: false
+
+metrics_server_namespace: "kube-system"
+metrics_server_version: "v0.8.0"
+# 默认走阿里云镜像，避免 registry.k8s.io 无法访问
+metrics_server_image: "registry.cn-hangzhou.aliyuncs.com/google_containers/metrics-server:{{ metrics_server_version }}"
+metrics_server_name: "metrics-server"
+metrics_server_replicas: 1
+
+# 实验/自签证书集群通常无法校验 kubelet 证书，跳过 TLS 校验
+metrics_server_kubelet_insecure_tls: true
+metrics_server_kubelet_preferred_address_types: "InternalIP,ExternalIP,Hostname"
+metrics_server_metric_resolution: "15s"
+
+# 若 Pod 网络无法访问 kubelet，可改为 true 使用宿主机网络
+metrics_server_host_network: false
+
+# 资源限制
+metrics_server_resources_requests_cpu: "100m"
+metrics_server_resources_requests_memory: "200Mi"
+metrics_server_resources_limits_cpu: "300m"
+metrics_server_resources_limits_memory: "512Mi"
+
+# 渲染后的 manifest 落地路径（master 节点）
+metrics_server_manifest_dest: "/root/metrics-server.yaml"
