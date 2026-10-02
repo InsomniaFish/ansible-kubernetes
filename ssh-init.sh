@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # SSH bootstrap / connectivity check (no Ansible required).
-# - Reads ansible_user/ansible_password from hosts.ini ([linux:vars])
+# - Host line ansible_user/ansible_password override [linux:vars]
 # - Reads hosts from [k8s_nodes] and [k8s_master]
 # - Skips hosts marked with ansible_connection=local
 
@@ -19,7 +19,10 @@ Examples:
   ./ssh-init.sh
   ./ssh-init.sh --list
 
-Env overrides:
+Per-host (optional, overrides [linux:vars]):
+  node01 ansible_host=10.0.0.11 ansible_user=root ansible_password=secret
+
+Env overrides (used when the host line omits them):
   INV_FILE=./hosts.ini
   ANSIBLE_USER=...
   ANSIBLE_PASSWORD=...
@@ -54,10 +57,14 @@ inventory_hosts_in_group() {
       split($0,a," ")
       name=a[1]
       host=name
+      user=""
+      pass=""
       if (match(line, /ansible_host=([^[:space:]]+)/, m)) host=m[1]
+      if (match(line, /ansible_user=([^[:space:]]+)/, m)) user=m[1]
+      if (match(line, /ansible_password=([^[:space:]]+)/, m)) pass=m[1]
       localconn=0
       if (line ~ /ansible_connection=local/) localconn=1
-      print gname "\t" name "\t" host "\t" localconn
+      print gname "\t" name "\t" host "\t" localconn "\t" user "\t" pass
     }
   ' "$INV_FILE"
 }
@@ -93,25 +100,28 @@ main() {
   need_cmd ssh
   need_cmd timeout
 
-  local user="${ANSIBLE_USER:-$(get_linux_var ansible_user)}"
-  local pass="${ANSIBLE_PASSWORD:-$(get_linux_var ansible_password)}"
-  if [[ -z "${user:-}" || -z "${pass:-}" ]]; then
-    echo "ERROR: Could not read ansible_user/ansible_password from $INV_FILE ([linux:vars])." >&2
-    echo "You can override via ANSIBLE_USER / ANSIBLE_PASSWORD env vars." >&2
-    exit 3
-  fi
+  local default_user="${ANSIBLE_USER:-$(get_linux_var ansible_user)}"
+  local default_pass="${ANSIBLE_PASSWORD:-$(get_linux_var ansible_password)}"
 
   echo "== SSH bootstrap check (inventory: $INV_FILE) =="
   local failures=0
 
-  while IFS=$'\t' read -r group name host localconn; do
+  while IFS=$'\t' read -r group name host localconn hostuser hostpass; do
     [[ -z "${name:-}" ]] && continue
     if [[ "${localconn:-0}" == "1" ]]; then
       echo "-- $group: $name (local) -- SKIP"
       continue
     fi
 
-    echo "-- $group: $name ($host) --"
+    local user="${hostuser:-$default_user}"
+    local pass="${hostpass:-$default_pass}"
+    echo "-- $group: $name ($host) user=$user --"
+
+    if [[ -z "${user:-}" || -z "${pass:-}" ]]; then
+      echo "FAILED: missing ansible_user/ansible_password: $name ($host)" >&2
+      failures=$((failures+1))
+      continue
+    fi
 
     if ! tcp22_check "$host"; then
       echo "FAILED: TCP/22 not reachable: $name ($host)" >&2
