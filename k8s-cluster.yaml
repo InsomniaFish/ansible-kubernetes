@@ -39,7 +39,7 @@
   gather_facts: false
   vars:
     k8s_master_host: "{{ groups['k8s_master'][0] }}"
-    k8s_join_command_from_master: "{{ hostvars[k8s_master_host].k8s_join_command }}"
+    k8s_join_command_from_master: "{{ hostvars[k8s_master_host]['k8s_join_command'] | default('', true) }}"
   tasks:
     - name: Skip join in check mode
       when: ansible_check_mode

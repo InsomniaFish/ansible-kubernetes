@@ -57,6 +57,10 @@
   ansible.builtin.set_fact:
     k8s_deb_version: "{{ k8s_deb_version_cmd.stdout | trim }}"
 
+- name: Wait for dpkg lock
+  ansible.builtin.command: flock -w 300 /var/lib/dpkg/lock-frontend true
+  changed_when: false
+
 - name: Install kubelet/kubeadm/kubectl
   ansible.builtin.apt:
     name:
